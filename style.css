@@ -818,7 +818,7 @@ input:checked + .slider:before {
     letter-spacing: 0.5px;
 }
 
-.dataset-badge.game {
+.dataset-badge.bus {
     background: rgba(0, 255, 136, 0.1);
     border: 1px solid rgba(0, 255, 136, 0.2);
     color: var(--accent-green);
@@ -984,4 +984,142 @@ input:checked + .slider:before {
 
 .profile-action-btn.delete:hover {
     color: var(--accent-red);
+}
+
+/* Circles Panel */
+.circles-panel {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.circles-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.circle-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.circle-item-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.circle-index {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 22px;
+}
+
+.circle-type-btns {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+
+.circle-type-btn {
+    flex: 1;
+    padding: 3px 0;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: none;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-speed);
+    color: var(--text-muted);
+}
+
+.circle-type-btn.hit.active {
+    background: rgba(0, 255, 136, 0.15);
+    border-color: rgba(0, 255, 136, 0.4);
+    color: var(--accent-green);
+}
+
+.circle-type-btn.miss.active {
+    background: rgba(255, 68, 68, 0.15);
+    border-color: rgba(255, 68, 68, 0.4);
+    color: var(--accent-red);
+}
+
+.circle-delete-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    transition: color var(--transition-speed);
+}
+
+.circle-delete-btn:hover { color: var(--accent-red); }
+
+.circle-radius-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.circle-radius-input {
+    flex: 1;
+    background: var(--bg-input, rgba(0,0,0,0.05));
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 7px;
+    font-size: 12px;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.circle-unit-select {
+    background: var(--bg-input, rgba(0,0,0,0.05));
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.add-profile-btn.active,
+#btn-add-circle.active,
+#btn-edit-circles.active {
+    background: rgba(0, 243, 255, 0.15);
+    border-color: rgba(0, 243, 255, 0.4);
+    color: var(--accent-cyan);
+}
+
+/* Circle drag handles on map */
+.circle-center-marker {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #38bdf8;
+    cursor: grab;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.circle-center-marker:active { cursor: grabbing; }
+
+.circle-handle-marker {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #38bdf8;
+    border: 2px solid #fff;
+    cursor: ew-resize;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }

@@ -75,10 +75,10 @@
                 <div class="control-group-title"><i class="fa-solid fa-layer-group"></i> Active Datasets</div>
                 <div class="control-row">
                     <span class="control-label">
-                        <span class="dataset-badge game">Game</span> Original Stations
+                        <span class="dataset-badge bus">Bus</span> Bus Stations
                     </span>
                     <label class="switch">
-                        <input type="checkbox" id="dataset-game-toggle" checked>
+                        <input type="checkbox" id="dataset-bus-toggle" checked>
                         <span class="slider round"></span>
                     </label>
                 </div>
@@ -113,11 +113,22 @@
                 </div>
             </section>
 
+            <section class="circles-panel">
+                <div class="circles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-circle-dot"></i> Circles</span>
+                    <div style="display:flex;gap:6px">
+                        <button id="btn-add-circle" class="add-profile-btn">+ Add</button>
+                        <button id="btn-edit-circles" class="add-profile-btn">Edit</button>
+                    </div>
+                </div>
+                <div id="circles-list-container"></div>
+            </section>
+
             <section class="profiles-panel">
                 <div class="profiles-header">
                     <span class="section-title-alt"><i class="fa-solid fa-bookmark"></i> Saved Profiles</span>
-                    <button id="btn-create-profile" class="add-profile-btn" title="Save Current View">
-                        <i class="fa-solid fa-plus"></i> Save View
+                    <button id="btn-create-profile" class="add-profile-btn" title="New Profile">
+                        <i class="fa-solid fa-plus"></i> New Profile
                     </button>
                 </div>
                 <div class="profiles-list" id="profiles-list-container">

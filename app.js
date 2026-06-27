@@ -3,10 +3,12 @@
 const state = {
     stations: [],
     gameRegion: null,
-    enabledHidingRegions: new Set(), // Starts empty (all hiding zones toggled off by default)
+    enabledHidingRegions: new Set(),
+    circles: [],
+    editMode: false,
     globalRegionsVisible: true,
     gameRegionVisible: true,
-    activeDatasets: new Set(['game', 'metro']), // 'game' and 'metro'
+    activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
     currentTheme: 'light', // Light themed by default
     selectedStationId: null,
     hoveredStationId: null,
@@ -41,12 +43,17 @@ map.addControl(new maplibregl.NavigationControl({
 let isMapReady = false;
 let dataLoaded = false;
 
+// Circle editing state
+let circleMarkers = new Map();
+let nextCircleId = 1;
+let addingCircleMode = false;
+
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
 const clearSearchBtn = document.getElementById('clear-search');
 const globalRegionsToggle = document.getElementById('global-regions-toggle');
 const gameRegionToggle = document.getElementById('game-region-toggle');
-const datasetGameToggle = document.getElementById('dataset-game-toggle');
+const datasetBusToggle = document.getElementById('dataset-bus-toggle');
 const datasetMetroToggle = document.getElementById('dataset-metro-toggle');
 const btnFitBounds = document.getElementById('btn-fit-bounds');
 const btnResetMap = document.getElementById('btn-reset-map');
@@ -102,7 +109,7 @@ async function init() {
                     ...feature.properties,
                     id: id,
                     Name: feature.properties.Name || `Station ${id}`,
-                    dataset: 'game'
+                    dataset: 'bus'
                 }
             };
         });
@@ -125,6 +132,9 @@ async function init() {
 
         // Merge datasets
         state.stations = [...gameStations, ...metroStations];
+
+        // All hiding zones on by default
+        state.stations.forEach(s => state.enabledHidingRegions.add(s.id));
 
         // Build Combined GeoJSON for MapLibre
         state.stationsGeoJson = {
@@ -184,11 +194,11 @@ function restoreLastSessionState() {
             state.gameRegionVisible = typeof view.gameRegionVisible === 'boolean' ? view.gameRegionVisible : true;
 
             const restoredDatasets = Array.isArray(view.activeDatasets)
-                ? view.activeDatasets.filter(dataset => dataset === 'game' || dataset === 'metro')
+                ? view.activeDatasets.filter(dataset => dataset === 'bus' || dataset === 'metro')
                 : [];
             state.activeDatasets = restoredDatasets.length > 0
                 ? new Set(restoredDatasets)
-                : new Set(['game', 'metro']);
+                : new Set(['bus', 'metro']);
             
             // Restore theme state if saved
             if (view.theme === 'dark' || view.theme === 'light') {
@@ -204,7 +214,7 @@ function restoreLastSessionState() {
             // Set UI inputs checkboxes values
             globalRegionsToggle.checked = state.globalRegionsVisible;
             gameRegionToggle.checked = state.gameRegionVisible;
-            datasetGameToggle.checked = state.activeDatasets.has('game');
+            datasetBusToggle.checked = state.activeDatasets.has('bus');
             datasetMetroToggle.checked = state.activeDatasets.has('metro');
             
             // Pre-position map view coordinates
@@ -224,26 +234,31 @@ function restoreLastSessionState() {
 function loadProfiles() {
     try {
         const stored = localStorage.getItem('jet-lag-profiles');
-        if (stored) {
-            state.profiles = JSON.parse(stored);
-        } else {
-            // Setup default profile
-            state.profiles = [
-                {
-                    id: 'default',
-                    name: 'Initial View (Default)',
-                    center: [-118.287, 34.05],
-                    zoom: 10.2,
-                    globalRegionsVisible: true,
-                    gameRegionVisible: true,
-                    activeDatasets: ['game', 'metro']
-                }
-            ];
-            saveProfiles();
-        }
+        if (stored) state.profiles = JSON.parse(stored);
     } catch (err) {
         console.error('Error loading profiles:', err);
-        state.profiles = [];
+    }
+    if (state.profiles.length === 0) {
+        state.profiles = [{
+            id: 'default',
+            name: 'Default',
+            center: [-118.287, 34.05],
+            zoom: 10.2,
+            globalRegionsVisible: true,
+            gameRegionVisible: true,
+            activeDatasets: ['bus', 'metro'],
+            circles: []
+        }];
+        saveProfiles();
+    }
+    // Always be in a profile — activate the first one on load
+    state.activeProfileId = state.profiles[0].id;
+
+    // Restore state from the active profile
+    const active = state.profiles[0];
+    state.circles = (active.circles || []).map(c => ({ ...c }));
+    if (active.circles?.length > 0) {
+        nextCircleId = Math.max(...active.circles.map(c => parseInt(c.id.replace('c', '')) || 0)) + 1;
     }
 }
 
@@ -367,25 +382,27 @@ function applyProfile(profileId) {
     state.globalRegionsVisible = profile.globalRegionsVisible;
     state.gameRegionVisible = profile.gameRegionVisible;
     state.activeDatasets = new Set(profile.activeDatasets);
+    state.circles = (profile.circles || []).map(c => ({ ...c }));
     
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
     gameRegionToggle.checked = state.gameRegionVisible;
-    datasetGameToggle.checked = state.activeDatasets.has('game');
+    datasetBusToggle.checked = state.activeDatasets.has('bus');
     datasetMetroToggle.checked = state.activeDatasets.has('metro');
     
     // Apply map layers visibilities
     if (isMapReady) {
         map.setLayoutProperty('hiding-regions-fill', 'visibility', state.globalRegionsVisible ? 'visible' : 'none');
         map.setLayoutProperty('hiding-regions-stroke', 'visibility', state.globalRegionsVisible ? 'visible' : 'none');
-        map.setLayoutProperty('game-region-fill', 'visibility', state.gameRegionVisible ? 'visible' : 'none');
+        map.setLayoutProperty('game-region-outside-fill', 'visibility', state.gameRegionVisible ? 'visible' : 'none');
         map.setLayoutProperty('game-region-border', 'visibility', state.gameRegionVisible ? 'visible' : 'none');
         
         // Force update hiding region sources and map layers
         map.getSource('hiding-regions').setData(generateHidingRegionsGeoJson());
         applyFiltersToMap();
+        onCirclesChanged();
     }
-    
+
     renderStationList();
     updateStats();
     renderProfilesList();
@@ -400,12 +417,13 @@ function createProfile() {
     
     const newProfile = {
         id: id,
-        name: `Saved View ${state.profiles.length + 1}`,
+        name: `Profile ${state.profiles.length + 1}`,
         center: center,
         zoom: zoom,
         globalRegionsVisible: state.globalRegionsVisible,
         gameRegionVisible: state.gameRegionVisible,
-        activeDatasets: Array.from(state.activeDatasets)
+        activeDatasets: Array.from(state.activeDatasets),
+        circles: state.circles.map(c => ({ ...c }))
     };
     
     state.profiles.push(newProfile);
@@ -417,19 +435,41 @@ function createProfile() {
 
 function deleteProfile(profileId) {
     state.profiles = state.profiles.filter(p => p.id !== profileId);
-    if (state.activeProfileId === profileId) {
-        state.activeProfileId = null;
+    if (state.profiles.length === 0) {
+        state.profiles = [{
+            id: 'default',
+            name: 'Default',
+            center: [-118.287, 34.05],
+            zoom: 10.2,
+            globalRegionsVisible: true,
+            gameRegionVisible: true,
+            activeDatasets: ['bus', 'metro'],
+            circles: []
+        }];
     }
-    
+    if (state.activeProfileId === profileId) {
+        state.activeProfileId = state.profiles[0].id;
+        applyProfile(state.activeProfileId);
+    }
     saveProfiles();
     renderProfilesList();
 }
 
+function saveToActiveProfile() {
+    const profile = state.profiles.find(p => p.id === state.activeProfileId);
+    if (!profile || !isMapReady) return;
+    const c = map.getCenter();
+    profile.center = [c.lng, c.lat];
+    profile.zoom = map.getZoom();
+    profile.globalRegionsVisible = state.globalRegionsVisible;
+    profile.gameRegionVisible = state.gameRegionVisible;
+    profile.activeDatasets = Array.from(state.activeDatasets);
+    profile.circles = state.circles.map(c => ({ ...c }));
+    saveProfiles();
+}
+
 function handleManualUIChange() {
-    if (state.activeProfileId !== null) {
-        state.activeProfileId = null;
-        renderProfilesList();
-    }
+    saveToActiveProfile();
     saveCurrentViewState();
 }
 
@@ -464,6 +504,228 @@ function generateHidingRegionsGeoJson() {
     };
 }
 
+// Build a world polygon with the active zone cut out
+function buildOutsideMask(activeZoneGeoJson) {
+    const world = turf.polygon([[[-180, -85.051129], [180, -85.051129], [180, 85.051129], [-180, 85.051129], [-180, -85.051129]]]);
+    let zone = activeZoneGeoJson;
+    if (zone.type === 'FeatureCollection') zone = zone.features[0];
+    else if (zone.type !== 'Feature') zone = turf.feature(zone);
+    return turf.difference(world, zone) || world;
+}
+
+// ── Circle helpers ────────────────────────────────────────────────────────────
+
+function normalizeToFeature(geoJson) {
+    if (geoJson.type === 'Feature') return geoJson;
+    if (geoJson.type === 'FeatureCollection') return geoJson.features[0];
+    return turf.feature(geoJson);
+}
+
+function computeActiveZone() {
+    let zone = normalizeToFeature(state.gameRegion);
+    for (const c of state.circles.filter(c => c.type === 'hit')) {
+        const circ = turf.circle(c.center, c.radiusMiles, { units: 'miles', steps: 64 });
+        const result = turf.intersect(zone, circ);
+        if (!result) return null;
+        zone = result;
+    }
+    for (const c of state.circles.filter(c => c.type === 'miss')) {
+        const circ = turf.circle(c.center, c.radiusMiles, { units: 'miles', steps: 64 });
+        const result = turf.difference(zone, circ);
+        if (!result) return null;
+        zone = result;
+    }
+    return zone;
+}
+
+function buildCirclesGeoJson() {
+    return {
+        type: 'FeatureCollection',
+        features: state.circles.map(c => {
+            const f = turf.circle(c.center, c.radiusMiles, { units: 'miles', steps: 64 });
+            f.properties = { id: c.id, type: c.type };
+            return f;
+        })
+    };
+}
+
+function getRadiusHandlePos(circle) {
+    return turf.destination(circle.center, circle.radiusMiles, 90, { units: 'miles' }).geometry.coordinates;
+}
+
+function radiusToDisplay(miles, unit) {
+    if (unit === 'feet') return miles * 5280;
+    if (unit === 'kilometers') return miles * 1.60934;
+    return miles;
+}
+
+function radiusFromDisplay(val, unit) {
+    if (unit === 'feet') return val / 5280;
+    if (unit === 'kilometers') return val / 1.60934;
+    return val;
+}
+
+function onCirclesChanged() {
+    if (!isMapReady) return;
+    const src = map.getSource('circles');
+    if (src) src.setData(buildCirclesGeoJson());
+    const activeZone = computeActiveZone();
+    const maskSrc = map.getSource('game-region-outside');
+    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone || state.gameRegion));
+    syncCircleMarkers();
+    updateStats();
+    renderStationList();
+    renderCirclesList();
+    saveToActiveProfile();
+}
+
+function syncCircleMarkers() {
+    // Remove markers for deleted circles
+    for (const [id, markers] of circleMarkers) {
+        if (!state.circles.find(c => c.id === id)) {
+            markers.center.remove();
+            markers.handle.remove();
+            circleMarkers.delete(id);
+        }
+    }
+    if (!state.editMode) {
+        for (const [, markers] of circleMarkers) {
+            markers.center.remove();
+            markers.handle.remove();
+        }
+        circleMarkers.clear();
+        return;
+    }
+    for (const c of state.circles) {
+        if (circleMarkers.has(c.id)) {
+            const m = circleMarkers.get(c.id);
+            m.center.setLngLat(c.center);
+            m.handle.setLngLat(getRadiusHandlePos(c));
+        } else {
+            const centerEl = document.createElement('div');
+            centerEl.className = 'circle-center-marker';
+            const centerMarker = new maplibregl.Marker({ element: centerEl, draggable: true })
+                .setLngLat(c.center).addTo(map);
+
+            const handleEl = document.createElement('div');
+            handleEl.className = 'circle-handle-marker';
+            const handleMarker = new maplibregl.Marker({ element: handleEl, draggable: true })
+                .setLngLat(getRadiusHandlePos(c)).addTo(map);
+
+            const id = c.id;
+            centerMarker.on('drag', () => {
+                const circle = state.circles.find(x => x.id === id);
+                if (!circle) return;
+                const ll = centerMarker.getLngLat();
+                circle.center = [ll.lng, ll.lat];
+                handleMarker.setLngLat(getRadiusHandlePos(circle));
+                map.getSource('circles')?.setData(buildCirclesGeoJson());
+                const az = computeActiveZone();
+                map.getSource('game-region-outside')?.setData(buildOutsideMask(az || state.gameRegion));
+            });
+            centerMarker.on('dragend', () => { updateStats(); renderCirclesList(); });
+
+            handleMarker.on('drag', () => {
+                const circle = state.circles.find(x => x.id === id);
+                if (!circle) return;
+                const ll = handleMarker.getLngLat();
+                circle.radiusMiles = Math.max(0.01, turf.distance(circle.center, [ll.lng, ll.lat], { units: 'miles' }));
+                map.getSource('circles')?.setData(buildCirclesGeoJson());
+                const az = computeActiveZone();
+                map.getSource('game-region-outside')?.setData(buildOutsideMask(az || state.gameRegion));
+            });
+            handleMarker.on('dragend', () => {
+                const circle = state.circles.find(x => x.id === id);
+                if (circle) handleMarker.setLngLat(getRadiusHandlePos(circle));
+                updateStats(); renderCirclesList();
+            });
+
+            circleMarkers.set(id, { center: centerMarker, handle: handleMarker });
+        }
+    }
+}
+
+function addCircleAtPoint(lngLat) {
+    const id = `c${nextCircleId++}`;
+    state.circles.push({ id, center: [lngLat.lng, lngLat.lat], radiusMiles: 10, displayUnit: 'miles', type: 'miss' });
+    onCirclesChanged();
+}
+
+function updateCircle(id, changes) {
+    const circle = state.circles.find(c => c.id === id);
+    if (!circle) return;
+    Object.assign(circle, changes);
+    onCirclesChanged();
+}
+
+function deleteCircle(id) {
+    if (circleMarkers.has(id)) {
+        circleMarkers.get(id).center.remove();
+        circleMarkers.get(id).handle.remove();
+        circleMarkers.delete(id);
+    }
+    state.circles = state.circles.filter(c => c.id !== id);
+    onCirclesChanged();
+}
+
+function renderCirclesList() {
+    const container = document.getElementById('circles-list-container');
+    if (!container) return;
+    if (state.circles.length === 0) {
+        container.innerHTML = '<div class="empty-state-small" style="padding:8px 0;font-size:11px;color:var(--text-muted)">No circles. Click + Add then click the map.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.circles.forEach((c, idx) => {
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.dataset.id = c.id;
+        const dispVal = radiusToDisplay(c.radiusMiles, c.displayUnit);
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index">#${idx + 1}</span>
+                <div class="circle-type-btns">
+                    <button class="circle-type-btn hit ${c.type === 'hit' ? 'active' : ''}" data-type="hit">Hit</button>
+                    <button class="circle-type-btn miss ${c.type === 'miss' ? 'active' : ''}" data-type="miss">Miss</button>
+                </div>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>
+            <div class="circle-radius-row">
+                <input type="number" class="circle-radius-input" value="${dispVal.toFixed(dispVal < 10 ? 3 : 1)}" min="0.001" step="any">
+                <select class="circle-unit-select">
+                    <option value="miles" ${c.displayUnit === 'miles' ? 'selected' : ''}>mi</option>
+                    <option value="feet" ${c.displayUnit === 'feet' ? 'selected' : ''}>ft</option>
+                    <option value="kilometers" ${c.displayUnit === 'kilometers' ? 'selected' : ''}>km</option>
+                </select>
+            </div>`;
+
+        item.querySelectorAll('.circle-type-btn').forEach(btn =>
+            btn.addEventListener('click', () => updateCircle(c.id, { type: btn.dataset.type }))
+        );
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteCircle(c.id));
+
+        const radiusInput = item.querySelector('.circle-radius-input');
+        const unitSelect = item.querySelector('.circle-unit-select');
+
+        radiusInput.addEventListener('change', () => {
+            const val = parseFloat(radiusInput.value);
+            if (!isNaN(val) && val > 0)
+                updateCircle(c.id, { radiusMiles: radiusFromDisplay(val, unitSelect.value), displayUnit: unitSelect.value });
+        });
+        unitSelect.addEventListener('change', () => {
+            const cur = state.circles.find(x => x.id === c.id);
+            if (cur) {
+                updateCircle(c.id, { displayUnit: unitSelect.value });
+                radiusInput.value = radiusToDisplay(cur.radiusMiles, unitSelect.value).toFixed(3);
+            }
+        });
+
+        container.appendChild(item);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Setup Sources and Layers on Map
 function setupMapLayers() {
     isMapReady = true;
@@ -491,15 +753,22 @@ function setupMapLayers() {
         });
     }
 
-    // 2. Add Game Region Layers - styled in light-translucent black & solid black border
-    if (!map.getLayer('game-region-fill')) {
+    // 2. Add Game Region Layers
+    if (!map.getSource('game-region-outside')) {
+        map.addSource('game-region-outside', {
+            type: 'geojson',
+            data: buildOutsideMask(state.gameRegion)
+        });
+    }
+
+    if (!map.getLayer('game-region-outside-fill')) {
         map.addLayer({
-            id: 'game-region-fill',
+            id: 'game-region-outside-fill',
             type: 'fill',
-            source: 'game-region',
+            source: 'game-region-outside',
             paint: {
-                'fill-color': state.currentTheme === 'dark' ? '#f8fafc' : '#0f172a',
-                'fill-opacity': 0.05
+                'fill-color': state.currentTheme === 'dark' ? '#000000' : '#94a3b8',
+                'fill-opacity': 0.35
             },
             layout: {
                 'visibility': state.gameRegionVisible ? 'visible' : 'none'
@@ -564,14 +833,14 @@ function setupMapLayers() {
             source: 'stations',
             paint: {
                 'circle-color': '#38bdf8', // Light blue glow
-                'circle-radius': 17, // Larger to glow around standard circle
+                'circle-radius': 18,
                 'circle-opacity': [
                     'case',
                     ['boolean', ['feature-state', 'hover'], false], 0.35,
                     ['boolean', ['feature-state', 'selected'], false], 0.5,
                     0
                 ],
-                'circle-blur': 0.4
+                'circle-blur': 0.55
             }
         });
     }
@@ -589,13 +858,14 @@ function setupMapLayers() {
                 ],
                 'circle-radius': [
                     'case',
-                    ['boolean', ['feature-state', 'selected'], false], 11,
-                    ['boolean', ['feature-state', 'hover'], false], 10.5,
-                    8.5
+                    ['boolean', ['feature-state', 'selected'], false], 12,
+                    ['boolean', ['feature-state', 'hover'], false], 11,
+                    9.5
                 ],
-                'circle-stroke-width': 1.5,
+                'circle-stroke-width': 2.5,
                 'circle-stroke-color': '#ffffff',
-                'circle-stroke-opacity': 0.9
+                'circle-stroke-opacity': 1,
+                'circle-opacity': 1
             }
         });
     }
@@ -608,13 +878,18 @@ function setupMapLayers() {
             source: 'stations',
             layout: {
                 'text-field': ['to-string', ['get', 'id']],
-                'text-size': 8.5,
-                'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
+                'text-size': 13.5,
+                'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+                'text-offset': [0, -1.55],
+                'text-anchor': 'bottom',
                 'text-allow-overlap': true,
                 'text-ignore-placement': true
             },
             paint: {
-                'text-color': '#ffffff'
+                'text-color': state.currentTheme === 'dark' ? '#ffffff' : '#0f172a',
+                'text-halo-color': state.currentTheme === 'dark' ? '#0f172a' : '#ffffff',
+                'text-halo-width': 2,
+                'text-halo-blur': 0.2
             }
         });
     }
@@ -642,6 +917,32 @@ function setupMapLayers() {
             }
         });
     }
+
+    // Circle layers
+    if (!map.getSource('circles')) {
+        map.addSource('circles', { type: 'geojson', data: buildCirclesGeoJson() });
+    }
+    if (!map.getLayer('circles-stroke')) {
+        map.addLayer({
+            id: 'circles-stroke',
+            type: 'line',
+            source: 'circles',
+            paint: {
+                'line-color': '#94a3b8',
+                'line-width': 1.5,
+                'line-opacity': 0.5,
+                'line-dasharray': [4, 3]
+            }
+        });
+    }
+
+    // Populate circles source from restored state
+    if (state.circles.length > 0) {
+        map.getSource('circles')?.setData(buildCirclesGeoJson());
+        const activeZone = computeActiveZone();
+        map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone || state.gameRegion));
+    }
+    renderCirclesList();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -722,6 +1023,7 @@ function setupMapEvents() {
 
         // Click event for stations
         map.on('click', layerId, (e) => {
+            if (addingCircleMode) return;
             if (e.features.length > 0) {
                 const stationFeature = e.features[0];
                 selectStation(stationFeature.id, true); // True to center on map
@@ -888,8 +1190,17 @@ function toggleHidingRegion(stationId, enabled) {
 function updateStats() {
     const activeStations = state.stations.filter(s => state.activeDatasets.has(s.properties.dataset));
     statTotalStations.textContent = activeStations.length;
-    
-    const activeHidingCount = activeStations.filter(s => state.enabledHidingRegions.has(s.id)).length;
+
+    let activeHidingCount;
+    if (state.circles.length > 0) {
+        const activeZone = computeActiveZone();
+        activeHidingCount = activeZone
+            ? activeStations.filter(s => turf.booleanPointInPolygon(
+                turf.point(s.geometry.coordinates.slice(0, 2)), activeZone)).length
+            : 0;
+    } else {
+        activeHidingCount = activeStations.filter(s => state.enabledHidingRegions.has(s.id)).length;
+    }
     statActiveRegions.textContent = activeHidingCount;
 }
 
@@ -910,10 +1221,10 @@ function applyFiltersToMap() {
 
     // Apply datasets filter
     let datasetFilter;
-    if (state.activeDatasets.has('game') && state.activeDatasets.has('metro')) {
-        datasetFilter = ['in', ['get', 'dataset'], ['literal', ['game', 'metro']]];
-    } else if (state.activeDatasets.has('game')) {
-        datasetFilter = ['==', ['get', 'dataset'], 'game'];
+    if (state.activeDatasets.has('bus') && state.activeDatasets.has('metro')) {
+        datasetFilter = ['in', ['get', 'dataset'], ['literal', ['bus', 'metro']]];
+    } else if (state.activeDatasets.has('bus')) {
+        datasetFilter = ['==', ['get', 'dataset'], 'bus'];
     } else if (state.activeDatasets.has('metro')) {
         datasetFilter = ['==', ['get', 'dataset'], 'metro'];
     } else {
@@ -992,6 +1303,12 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
+        const toggleHtml = state.circles.length === 0 ? `
+                <label class="switch">
+                    <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
+                    <span class="slider round"></span>
+                </label>` : '';
+
         stationItem.innerHTML = `
             <div class="station-info">
                 <span class="station-name">${name}</span>
@@ -1007,10 +1324,7 @@ function renderStationList() {
                 <button class="btn-locate" title="Locate station on Map">
                     <i class="fa-solid fa-crosshairs"></i>
                 </button>
-                <label class="switch">
-                    <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
-                    <span class="slider round"></span>
-                </label>
+                ${toggleHtml}
             </div>
         `;
 
@@ -1025,11 +1339,13 @@ function renderStationList() {
             selectStation(id, true);
         });
 
-        // Toggle Switch Listener
+        // Toggle Switch Listener (absent when circles are active)
         const toggleSwitch = stationItem.querySelector('.list-toggle');
-        toggleSwitch.addEventListener('change', (e) => {
-            toggleHidingRegion(id, e.target.checked);
-        });
+        if (toggleSwitch) {
+            toggleSwitch.addEventListener('change', (e) => {
+                toggleHidingRegion(id, e.target.checked);
+            });
+        }
 
         stationsListContainer.appendChild(stationItem);
     });
@@ -1073,18 +1389,18 @@ function setupEventListeners() {
         state.gameRegionVisible = e.target.checked;
         if (isMapReady) {
             const visibility = state.gameRegionVisible ? 'visible' : 'none';
-            map.setLayoutProperty('game-region-fill', 'visibility', visibility);
+            map.setLayoutProperty('game-region-outside-fill', 'visibility', visibility);
             map.setLayoutProperty('game-region-border', 'visibility', visibility);
         }
         handleManualUIChange();
     });
 
     // Dataset Game Toggle
-    datasetGameToggle.addEventListener('change', (e) => {
+    datasetBusToggle.addEventListener('change', (e) => {
         if (e.target.checked) {
-            state.activeDatasets.add('game');
+            state.activeDatasets.add('bus');
         } else {
-            state.activeDatasets.delete('game');
+            state.activeDatasets.delete('bus');
         }
         renderStationList();
         
@@ -1145,9 +1461,9 @@ function setupEventListeners() {
         state.searchQuery = '';
         clearSearchBtn.style.display = 'none';
         
-        state.activeDatasets.add('game');
+        state.activeDatasets.add('bus');
         state.activeDatasets.add('metro');
-        datasetGameToggle.checked = true;
+        datasetBusToggle.checked = true;
         datasetMetroToggle.checked = true;
 
         renderStationList();
@@ -1177,6 +1493,19 @@ function setupEventListeners() {
         saveCurrentViewState(); // Save theme toggle in state
     });
 
+    // Circle Add/Edit buttons
+    document.getElementById('btn-add-circle').addEventListener('click', () => {
+        addingCircleMode = !addingCircleMode;
+        document.getElementById('btn-add-circle').classList.toggle('active', addingCircleMode);
+        map.getCanvas().style.cursor = addingCircleMode ? 'crosshair' : '';
+    });
+
+    document.getElementById('btn-edit-circles').addEventListener('click', () => {
+        state.editMode = !state.editMode;
+        document.getElementById('btn-edit-circles').classList.toggle('active', state.editMode);
+        syncCircleMarkers();
+    });
+
     // Mobile Sidebar Drawer Toggle
     mobileSidebarToggle.addEventListener('click', () => {
         sidebar.classList.toggle('open');
@@ -1189,20 +1518,16 @@ function setupEventListeners() {
     });
 
     // Close mobile sidebar when clicking on map
-    map.on('click', () => {
+    map.on('click', (e) => {
         if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
             mobileSidebarToggle.querySelector('i').className = 'fa-solid fa-bars';
         }
-    });
-
-    // Clear active profile highlight when map view is changed by user interaction
-    map.on('movestart', (e) => {
-        if (e.originalEvent) {
-            if (state.activeProfileId !== null) {
-                state.activeProfileId = null;
-                renderProfilesList();
-            }
+        if (addingCircleMode) {
+            addCircleAtPoint(e.lngLat);
+            addingCircleMode = false;
+            document.getElementById('btn-add-circle').classList.remove('active');
+            map.getCanvas().style.cursor = '';
         }
     });
 
@@ -1210,6 +1535,7 @@ function setupEventListeners() {
     map.on('moveend', () => {
         renderStationList(); // Dynamically filter list items to match screen viewport
         saveCurrentViewState();
+        saveToActiveProfile();
     });
 }
 
