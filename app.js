@@ -7,6 +7,7 @@ const state = {
     circles: [],
     thermometers: [],
     adminClues: [],
+    distanceClues: [],
     editMode: false,
     globalRegionsVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
@@ -59,6 +60,26 @@ let admin1Data = null;
 let admin2Data = null;
 let nextAdminClueId = 1;
 let addingAdminClueLevel = 0; // 0 = off, 1 or 2 = picking
+
+// Distance clue state
+const DISTANCE_FEATURES = {
+    'rail-lines':     { label: 'Rail Lines',         icon: 'fa-train',        file: 'features/rail-lines.geojson' },
+    'train-stations': { label: 'Train Stations',     icon: 'fa-train-subway', file: 'trains.geojson' },
+    'coastline':      { label: 'Coastline',          icon: 'fa-water',        file: 'features/coastline.geojson' },
+    'state-borders':  { label: 'State Borders',      icon: 'fa-flag-usa',     file: 'features/state-borders.geojson' },
+    'county-borders': { label: 'County Borders',     icon: 'fa-map',          file: 'features/county-borders.geojson' },
+    'airports':       { label: 'Airports',           icon: 'fa-plane',        file: 'features/airports.geojson' },
+    'mountains':      { label: 'Mountains',          icon: 'fa-mountain',     file: 'features/mountains.geojson' },
+    'parks':          { label: 'Parks',              icon: 'fa-tree',         file: 'features/parks.geojson' },
+    'amusement-parks':{ label: 'Amusement Parks',   icon: 'fa-star',         file: 'features/amusement-parks.geojson' },
+    'zoos':           { label: 'Zoos & Aquariums',  icon: 'fa-paw',          file: 'features/zoos.geojson' },
+    'golf-courses':   { label: 'Golf Courses',       icon: 'fa-golf-ball-tee',file: 'features/golf-courses.geojson' },
+    'museums':        { label: 'Museums',            icon: 'fa-building-columns', file: 'features/museums.geojson' },
+    'theaters':       { label: 'Theaters',           icon: 'fa-masks-theater',file: 'features/theaters.geojson' },
+};
+const distanceFeatureCache = {}; // key → GeoJSON FeatureCollection
+let nextDistanceClueId = 1;
+let addingDistanceClueMode = false; // false | feature-key string (waiting for ref point click)
 
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
@@ -277,6 +298,10 @@ function loadProfiles() {
     if (active.adminClues?.length > 0) {
         nextAdminClueId = Math.max(...active.adminClues.map(c => parseInt(c.id.replace('adm', '')) || 0)) + 1;
     }
+    state.distanceClues = (active.distanceClues || []).map(c => ({ ...c }));
+    if (active.distanceClues?.length > 0) {
+        nextDistanceClueId = Math.max(...active.distanceClues.map(c => parseInt(c.id.replace('dc', '')) || 0)) + 1;
+    }
 }
 
 function saveProfiles() {
@@ -401,6 +426,7 @@ function applyProfile(profileId) {
     state.circles = (profile.circles || []).map(c => ({ ...c }));
     state.thermometers = (profile.thermometers || []).map(t => ({ ...t }));
     state.adminClues = (profile.adminClues || []).map(c => ({ ...c }));
+    state.distanceClues = (profile.distanceClues || []).map(c => ({ ...c }));
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
@@ -420,6 +446,7 @@ function applyProfile(profileId) {
         onCirclesChanged();
         onThermometersChanged();
         onAdminCluesChanged();
+        onDistanceCluesChanged();
     }
 
     renderStationList();
@@ -443,7 +470,8 @@ function createProfile() {
         activeDatasets: Array.from(state.activeDatasets),
         circles: state.circles.map(c => ({ ...c })),
         thermometers: state.thermometers.map(t => ({ ...t })),
-        adminClues: state.adminClues.map(c => ({ ...c }))
+        adminClues: state.adminClues.map(c => ({ ...c })),
+        distanceClues: state.distanceClues.map(c => ({ ...c })),
     };
 
     state.profiles.push(newProfile);
@@ -485,6 +513,7 @@ function saveToActiveProfile() {
     profile.circles = state.circles.map(c => ({ ...c }));
     profile.thermometers = state.thermometers.map(t => ({ ...t }));
     profile.adminClues = state.adminClues.map(c => ({ ...c }));
+    profile.distanceClues = state.distanceClues.map(c => ({ ...c }));
     saveProfiles();
 }
 
@@ -605,7 +634,100 @@ function computeActiveZone() {
             zone = result;
         }
     }
+    for (const clue of state.distanceClues) {
+        const region = distanceClueRegion(clue);
+        if (!region) continue;
+        if (clue.type === 'closer') {
+            const result = turf.intersect(zone, region);
+            if (!result) return null;
+            zone = result;
+        } else {
+            const result = turf.difference(zone, region);
+            if (!result) return null;
+            zone = result;
+        }
+    }
     return zone;
+}
+
+// Returns the pre-computed buffer polygon for a distance clue (cached on the clue object).
+function distanceClueRegion(clue) {
+    if (clue._bufferGeoJson) return clue._bufferGeoJson;
+    const data = distanceFeatureCache[clue.featureKey];
+    if (!data || !data.features.length) return null;
+    try {
+        // Use fewer polygon steps for large datasets to keep computation fast.
+        const n = data.features.length;
+        const steps = n <= 4 ? 32 : n <= 20 ? 16 : 6;
+        const buf = turf.buffer(data, clue.thresholdMiles, { units: 'miles', steps });
+        if (!buf) return null;
+        const parts = Array.isArray(buf.features) ? buf.features.filter(Boolean) : [buf];
+        if (!parts.length) return null;
+        // Cascade union (O(N log N) polygon complexity) instead of sequential O(N²).
+        const union = cascadeUnion(parts);
+        clue._bufferGeoJson = union;
+        return union;
+    } catch (e) {
+        console.warn('distanceClueRegion error:', e);
+        return null;
+    }
+}
+
+function cascadeUnion(features) {
+    if (features.length === 0) return null;
+    if (features.length === 1) return features[0];
+    const mid = Math.floor(features.length / 2);
+    const left = cascadeUnion(features.slice(0, mid));
+    const right = cascadeUnion(features.slice(mid));
+    if (!left) return right;
+    if (!right) return left;
+    try { return turf.union(left, right) || left; } catch { return left; }
+}
+
+async function loadDistanceFeature(key) {
+    if (distanceFeatureCache[key]) return distanceFeatureCache[key];
+    const info = DISTANCE_FEATURES[key];
+    if (!info) return null;
+    try {
+        const r = await fetch(info.file);
+        if (!r.ok) return null;
+        const data = await r.json();
+        distanceFeatureCache[key] = data;
+        return data;
+    } catch { return null; }
+}
+
+function nearestDistanceMiles(featureCollection, lngLat) {
+    const pt = turf.point([lngLat.lng, lngLat.lat]);
+    let minDist = Infinity;
+    for (const feat of featureCollection.features) {
+        try {
+            let d;
+            const t = feat.geometry.type;
+            if (t === 'Point') {
+                d = turf.distance(pt, feat, { units: 'miles' });
+            } else if (t === 'LineString') {
+                d = turf.pointToLineDistance(pt, feat, { units: 'miles' });
+            } else if (t === 'MultiLineString') {
+                for (const line of feat.geometry.coordinates) {
+                    const ls = turf.lineString(line);
+                    d = Math.min(d ?? Infinity, turf.pointToLineDistance(pt, ls, { units: 'miles' }));
+                }
+            } else if (t === 'Polygon' || t === 'MultiPolygon') {
+                // distance to polygon boundary
+                const line = turf.polygonToLine(feat);
+                if (line.type === 'FeatureCollection') {
+                    for (const lf of line.features) {
+                        d = Math.min(d ?? Infinity, turf.pointToLineDistance(pt, lf, { units: 'miles' }));
+                    }
+                } else {
+                    d = turf.pointToLineDistance(pt, line, { units: 'miles' });
+                }
+            }
+            if (d !== undefined && d < minDist) minDist = d;
+        } catch {}
+    }
+    return minDist === Infinity ? null : minDist;
 }
 
 function buildCirclesGeoJson() {
@@ -924,6 +1046,93 @@ function renderAdminCluesList() {
             btn.addEventListener('click', () => updateAdminClue(clue.id, { type: btn.dataset.type }))
         );
         item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteAdminClue(clue.id));
+        container.appendChild(item);
+    });
+}
+
+// ── Distance clue helpers ─────────────────────────────────────────────────────
+
+function onDistanceCluesChanged() {
+    const activeZone = computeActiveZone();
+    const maskSrc = map.getSource('game-region-outside');
+    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone));
+    updateStats();
+    renderDistanceCluesList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+async function addDistanceClue(featureKey, lngLat) {
+    const data = await loadDistanceFeature(featureKey);
+    if (!data) { console.warn('Feature data not loaded:', featureKey); return; }
+    const dist = nearestDistanceMiles(data, lngLat);
+    if (dist === null) { console.warn('Could not compute distance'); return; }
+    const id = `dc${nextDistanceClueId++}`;
+    const info = DISTANCE_FEATURES[featureKey];
+    const clue = {
+        id,
+        featureKey,
+        label: info.label,
+        refPoint: [lngLat.lng, lngLat.lat],
+        thresholdMiles: dist,
+        type: 'closer',
+    };
+    state.distanceClues.push(clue);
+    onDistanceCluesChanged();
+}
+
+function deleteDistanceClue(id) {
+    state.distanceClues = state.distanceClues.filter(c => c.id !== id);
+    onDistanceCluesChanged();
+}
+
+function updateDistanceClue(id, changes) {
+    const clue = state.distanceClues.find(c => c.id === id);
+    if (!clue) return;
+    if (changes.type !== undefined) clue.type = changes.type;
+    if (changes.thresholdMiles !== undefined) {
+        clue.thresholdMiles = changes.thresholdMiles;
+        delete clue._bufferGeoJson; // invalidate cache
+    }
+    onDistanceCluesChanged();
+}
+
+function renderDistanceCluesList() {
+    const container = document.getElementById('distance-clues-list-container');
+    if (!container) return;
+    if (state.distanceClues.length === 0) {
+        container.innerHTML = '<div class="empty-state-small" style="padding:8px 0;font-size:11px;color:var(--text-muted)">No clues yet. Select a feature type and click the reference point.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.distanceClues.forEach((clue, idx) => {
+        const info = DISTANCE_FEATURES[clue.featureKey] || {};
+        const distMi = clue.thresholdMiles.toFixed(2);
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index" style="font-size:9px;white-space:nowrap">${idx + 1}</span>
+                <span style="flex:1;font-size:11px;padding:0 5px;min-width:0">
+                    <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${info.label || clue.featureKey}</span>
+                    <input type="number" class="dist-threshold-input" value="${distMi}" min="0.01" step="0.1"
+                        style="width:72px;font-size:11px;border:1px solid var(--border-color);border-radius:4px;padding:1px 4px;background:var(--bg-secondary);color:var(--text-primary);margin-top:2px"> mi
+                </span>
+                <div class="circle-type-btns">
+                    <button class="circle-type-btn hit ${clue.type === 'closer' ? 'active' : ''}" data-type="closer">Closer</button>
+                    <button class="circle-type-btn miss ${clue.type === 'further' ? 'active' : ''}" data-type="further">Further</button>
+                </div>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelectorAll('.circle-type-btn').forEach(btn =>
+            btn.addEventListener('click', () => updateDistanceClue(clue.id, { type: btn.dataset.type }))
+        );
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteDistanceClue(clue.id));
+        const distInput = item.querySelector('.dist-threshold-input');
+        distInput.addEventListener('change', () => {
+            const val = parseFloat(distInput.value);
+            if (!isNaN(val) && val > 0) updateDistanceClue(clue.id, { thresholdMiles: val });
+        });
         container.appendChild(item);
     });
 }
@@ -1435,6 +1644,7 @@ function setupMapLayers() {
     });
 
     renderAdminCluesList();
+    renderDistanceCluesList();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -1695,7 +1905,7 @@ function updateStats() {
     statTotalStations.textContent = activeStations.length;
 
     let activeHidingCount;
-    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0) {
+    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0 || state.distanceClues.length > 0) {
         const activeZone = computeActiveZone();
         activeHidingCount = activeZone
             ? activeStations.filter(s => turf.booleanPointInPolygon(
@@ -1806,7 +2016,7 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
-        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0) ? `
+        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0 && state.distanceClues.length === 0) ? `
                 <label class="switch">
                     <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -2040,9 +2250,30 @@ function setupEventListeners() {
         });
     });
 
+    // Distance clue add button
+    document.getElementById('btn-add-distance-clue').addEventListener('click', () => {
+        const key = document.getElementById('distance-feature-select').value;
+        if (!key) return;
+        if (addingDistanceClueMode === key) {
+            addingDistanceClueMode = false;
+            map.getCanvas().style.cursor = '';
+            document.getElementById('btn-add-distance-clue').classList.remove('active');
+            document.getElementById('btn-add-distance-clue').textContent = '+ Add';
+            document.getElementById('distance-feature-select').disabled = false;
+        } else {
+            addingDistanceClueMode = key;
+            map.getCanvas().style.cursor = 'crosshair';
+            document.getElementById('btn-add-distance-clue').classList.add('active');
+            document.getElementById('btn-add-distance-clue').textContent = 'Click ref…';
+            document.getElementById('distance-feature-select').disabled = true;
+            // Pre-load the feature data
+            loadDistanceFeature(key);
+        }
+    });
+
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
-        if (state.editMode && addingAdminClueLevel === 0) return;
+        if (state.editMode && addingAdminClueLevel === 0 && !addingDistanceClueMode) return;
 
         if (addingThermometerMode) {
             const pt = [e.lngLat.lng, e.lngLat.lat];
@@ -2076,6 +2307,18 @@ function setupEventListeners() {
             document.getElementById('btn-add-admin2').classList.remove('active');
             map.getCanvas().style.cursor = '';
             exitAdminPickingMode();
+            return;
+        }
+
+        if (addingDistanceClueMode) {
+            const key = addingDistanceClueMode;
+            addingDistanceClueMode = false;
+            map.getCanvas().style.cursor = '';
+            const selectEl = document.getElementById('distance-feature-select');
+            if (selectEl) selectEl.disabled = false;
+            const btn = document.getElementById('btn-add-distance-clue');
+            if (btn) { btn.classList.remove('active'); btn.textContent = '+ Add'; }
+            addDistanceClue(key, e.lngLat);
             return;
         }
 

@@ -83,6 +83,31 @@
                 <div id="admin-clues-list-container"></div>
             </section>
 
+            <section class="circles-panel">
+                <div class="circles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-ruler"></i> Nearest Feature</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;padding:4px 0">
+                    <select id="distance-feature-select" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary)">
+                        <option value="rail-lines">Rail Lines</option>
+                        <option value="train-stations">Train Stations</option>
+                        <option value="coastline">Coastline</option>
+                        <option value="state-borders">State Borders</option>
+                        <option value="county-borders">County Borders</option>
+                        <option value="airports">Airports</option>
+                        <option value="mountains">Mountains</option>
+                        <option value="parks">Parks</option>
+                        <option value="amusement-parks">Amusement Parks</option>
+                        <option value="zoos">Zoos &amp; Aquariums</option>
+                        <option value="golf-courses">Golf Courses</option>
+                        <option value="museums">Museums</option>
+                        <option value="theaters">Theaters</option>
+                    </select>
+                    <button id="btn-add-distance-clue" class="add-profile-btn">+ Add</button>
+                </div>
+                <div id="distance-clues-list-container"></div>
+            </section>
+
             <section class="controls-panel">
                 <div class="control-row">
                     <span class="control-label"><i class="fa-solid fa-eye-slash"></i> Hiding Regions (All)</span>
