@@ -98,8 +98,8 @@ async function init() {
                 if (!r.ok) throw new Error('Failed to load stations.geojson');
                 return r.json();
             }),
-            fetch('all-metro-stations.geojson').then(r => {
-                if (!r.ok) throw new Error('Failed to load all-metro-stations.geojson');
+            fetch('trains.geojson').then(r => {
+                if (!r.ok) throw new Error('Failed to load trains.geojson');
                 return r.json();
             })
         ]);
