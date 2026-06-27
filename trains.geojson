@@ -86,6 +86,9 @@
 { "type": "Feature", "properties": { "STOP_ID": "80708", "STOP_NAME": "Martin Luther King Jr Station", "STOP_LAT": 34.009563, "STOP_LON": -118.335359 }, "geometry": { "type": "Point", "coordinates": [ -118.335359, 34.009563 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "81401", "STOP_NAME": "Grand Ave Arts / Bunker Hill Station", "STOP_LAT": 34.054724, "STOP_LON": -118.251531 }, "geometry": { "type": "Point", "coordinates": [ -118.251531, 34.054724 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "81402", "STOP_NAME": "Historic Broadway Station", "STOP_LAT": 34.052156, "STOP_LON": -118.246321 }, "geometry": { "type": "Point", "coordinates": [ -118.246321, 34.052156 ] } },
-{ "type": "Feature", "properties": { "STOP_ID": "81403", "STOP_NAME": "Little Tokyo / Arts District Station", "STOP_LAT": 34.048845, "STOP_LON": -118.238757 }, "geometry": { "type": "Point", "coordinates": [ -118.238757, 34.048845 ] } }
+{ "type": "Feature", "properties": { "STOP_ID": "81403", "STOP_NAME": "Little Tokyo / Arts District Station", "STOP_LAT": 34.048845, "STOP_LON": -118.238757 }, "geometry": { "type": "Point", "coordinates": [ -118.238757, 34.048845 ] } },
+{ "type": "Feature", "properties": { "STOP_ID": "99991", "STOP_NAME": "Wilshire \/ La Brea", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.343971717653972, 34.061969000302199 ] } },
+{ "type": "Feature", "properties": { "STOP_ID": "99992", "STOP_NAME": "Wilshire \/ Fairfax", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.361441400998473, 34.06303269366564 ] } },
+{ "type": "Feature", "properties": { "STOP_ID": "99993", "STOP_NAME": "Wilshire \/ La Cienega", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.375939953368743, 34.06533929652592 ] } }
 ]
 }
