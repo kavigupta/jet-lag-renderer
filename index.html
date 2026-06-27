@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jet Lag Game Region & Stations</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Interactive map rendering the Jet Lag game region and stations with toggleable 0.25-mile hiding regions.">
+    <meta name="keywords" content="Jet Lag, Game Region, MapLibre, GeoJSON, Hiding Regions, Stations">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- MapLibre GL JS CSS -->
+    <link href="https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Mobile Sidebar Toggle -->
+        <button id="mobile-sidebar-toggle" class="sidebar-toggle-btn glass-panel" title="Toggle Menu">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <!-- Sidebar Panel -->
+        <aside id="sidebar" class="glass-panel">
+            <header class="sidebar-header">
+                <div class="brand">
+                    <div class="brand-icon">
+                        <i class="fa-solid fa-compass-drafting fa-spin-hover"></i>
+                    </div>
+                    <div>
+                        <h1>JET LAG</h1>
+                        <span class="subtitle">Game Region Renderer</span>
+                    </div>
+                </div>
+            </header>
+
+            <section class="search-container">
+                <div class="search-wrapper">
+                    <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                    <input type="text" id="station-search" placeholder="Search stations..." autocomplete="off">
+                    <button id="clear-search" class="clear-btn" style="display: none;">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </section>
+
+            <section class="controls-panel">
+                <div class="control-row">
+                    <span class="control-label"><i class="fa-solid fa-eye-slash"></i> Hiding Regions (All)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="global-regions-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <span class="control-label"><i class="fa-solid fa-draw-polygon"></i> Game Boundary</span>
+                    <label class="switch">
+                        <input type="checkbox" id="game-region-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                
+                <div class="control-divider"></div>
+                
+                <div class="control-group-title"><i class="fa-solid fa-layer-group"></i> Active Datasets</div>
+                <div class="control-row">
+                    <span class="control-label">
+                        <span class="dataset-badge game">Game</span> Original Stations
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="dataset-game-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">
+                        <span class="dataset-badge metro">Metro</span> LA Metro Rail
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="dataset-metro-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                
+                <div class="action-buttons">
+                    <button id="btn-fit-bounds" class="action-btn">
+                        <i class="fa-solid fa-expand"></i> Fit to Region
+                    </button>
+                    <button id="btn-reset-map" class="action-btn">
+                        <i class="fa-solid fa-arrows-spin"></i> Reset View
+                    </button>
+                </div>
+            </section>
+
+            <section class="stats-panel">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total-stations">-</div>
+                    <div class="stat-label">Total Stations</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-active-regions">-</div>
+                    <div class="stat-label">Active Hiding</div>
+                </div>
+            </section>
+
+            <section class="profiles-panel">
+                <div class="profiles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-bookmark"></i> Saved Profiles</span>
+                    <button id="btn-create-profile" class="add-profile-btn" title="Save Current View">
+                        <i class="fa-solid fa-plus"></i> Save View
+                    </button>
+                </div>
+                <div class="profiles-list" id="profiles-list-container">
+                    <!-- Dynamic profiles will go here -->
+                </div>
+            </section>
+
+            <section class="station-list-section">
+                <div class="section-title">
+                    <span>Stations List</span>
+                    <span class="count-badge" id="visible-stations-count">0</span>
+                </div>
+                <div class="station-list" id="stations-list-container">
+                    <div class="loading-state">
+                        <i class="fa-solid fa-circle-notch fa-spin"></i>
+                        <span>Loading stations data...</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- Map Container -->
+        <main id="map-container">
+            <div id="map"></div>
+            
+            <!-- Floating Map Controls -->
+            <div class="map-overlay-controls">
+                <button id="btn-theme-toggle" class="floating-control-btn" title="Toggle Map Style">
+                    <i class="fa-solid fa-circle-half-stroke"></i>
+                </button>
+                <div class="legend glass-panel">
+                    <div class="legend-title">Legend</div>
+                    <div class="legend-item">
+                        <span class="legend-color game-region-border"></span>
+                        <span>Game Region</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color station-marker"></span>
+                        <span>Station</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color hiding-region"></span>
+                        <span>Hiding Region (0.25 mi)</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Help Overlay -->
+            <div id="help-tooltip" class="glass-panel">
+                <i class="fa-solid fa-circle-info"></i> Click stations on map or list to toggle hiding regions
+            </div>
+        </main>
+    </div>
+
+    <!-- MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@4.3.0/dist/maplibre-gl.js"></script>
+    
+    <!-- Turf.js (for high-fidelity geographic buffers/circles) -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    
+    <!-- App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
