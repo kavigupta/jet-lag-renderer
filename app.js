@@ -504,9 +504,11 @@ function generateHidingRegionsGeoJson() {
     };
 }
 
-// Build a world polygon with the active zone cut out
+// Build a world polygon with the active zone cut out.
+// Passing null (contradiction) shades the entire map.
 function buildOutsideMask(activeZoneGeoJson) {
     const world = turf.polygon([[[-180, -85.051129], [180, -85.051129], [180, 85.051129], [-180, 85.051129], [-180, -85.051129]]]);
+    if (!activeZoneGeoJson) return world;
     let zone = activeZoneGeoJson;
     if (zone.type === 'FeatureCollection') zone = zone.features[0];
     else if (zone.type !== 'Feature') zone = turf.feature(zone);
@@ -571,7 +573,7 @@ function onCirclesChanged() {
     if (src) src.setData(buildCirclesGeoJson());
     const activeZone = computeActiveZone();
     const maskSrc = map.getSource('game-region-outside');
-    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone || state.gameRegion));
+    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone));
     syncCircleMarkers();
     updateStats();
     renderStationList();
@@ -621,7 +623,7 @@ function syncCircleMarkers() {
                 handleMarker.setLngLat(getRadiusHandlePos(circle));
                 map.getSource('circles')?.setData(buildCirclesGeoJson());
                 const az = computeActiveZone();
-                map.getSource('game-region-outside')?.setData(buildOutsideMask(az || state.gameRegion));
+                map.getSource('game-region-outside')?.setData(buildOutsideMask(az));
             });
             centerMarker.on('dragend', () => { updateStats(); renderCirclesList(); });
 
@@ -632,7 +634,7 @@ function syncCircleMarkers() {
                 circle.radiusMiles = Math.max(0.01, turf.distance(circle.center, [ll.lng, ll.lat], { units: 'miles' }));
                 map.getSource('circles')?.setData(buildCirclesGeoJson());
                 const az = computeActiveZone();
-                map.getSource('game-region-outside')?.setData(buildOutsideMask(az || state.gameRegion));
+                map.getSource('game-region-outside')?.setData(buildOutsideMask(az));
             });
             handleMarker.on('dragend', () => {
                 const circle = state.circles.find(x => x.id === id);
@@ -940,7 +942,7 @@ function setupMapLayers() {
     if (state.circles.length > 0) {
         map.getSource('circles')?.setData(buildCirclesGeoJson());
         const activeZone = computeActiveZone();
-        map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone || state.gameRegion));
+        map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
     }
     renderCirclesList();
 
