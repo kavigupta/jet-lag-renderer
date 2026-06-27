@@ -581,6 +581,22 @@ function onCirclesChanged() {
     saveToActiveProfile();
 }
 
+function applyEditModeVisuals(active) {
+    const dim = active ? 0.15 : null;
+    const dimLine = active ? 0.1 : null;
+    const layers = [
+        ['stations-circle',       'circle-opacity',    dim ?? 1],
+        ['stations-circle',       'circle-stroke-opacity', dim ?? 1],
+        ['stations-number',       'text-opacity',      dim ?? 1],
+        ['hiding-regions',        'fill-opacity',      dim ?? 0.15],
+        ['hiding-regions-stroke', 'line-opacity',      dimLine ?? 0.4],
+        ['game-region-outline',   'line-opacity',      dimLine ?? 0.8],
+    ];
+    for (const [id, prop, val] of layers) {
+        if (map.getLayer(id)) map.setPaintProperty(id, prop, val);
+    }
+}
+
 function syncCircleMarkers() {
     // Remove markers for deleted circles
     for (const [id, markers] of circleMarkers) {
@@ -993,6 +1009,7 @@ function setupMapEvents() {
     interactiveLayers.forEach(layerId => {
         // Hover event for stations
         map.on('mousemove', layerId, (e) => {
+            if (state.editMode) return;
             if (e.features.length > 0) {
                 map.getCanvas().style.cursor = 'pointer';
                 
@@ -1025,7 +1042,7 @@ function setupMapEvents() {
 
         // Click event for stations
         map.on('click', layerId, (e) => {
-            if (addingCircleMode) return;
+            if (state.editMode || addingCircleMode) return;
             if (e.features.length > 0) {
                 const stationFeature = e.features[0];
                 selectStation(stationFeature.id, true); // True to center on map
@@ -1505,6 +1522,10 @@ function setupEventListeners() {
     document.getElementById('btn-edit-circles').addEventListener('click', () => {
         state.editMode = !state.editMode;
         document.getElementById('btn-edit-circles').classList.toggle('active', state.editMode);
+        map.getCanvas().style.cursor = state.editMode ? 'default' : '';
+        const hint = document.getElementById('circles-edit-hint');
+        if (hint) hint.style.display = state.editMode ? 'block' : 'none';
+        applyEditModeVisuals(state.editMode);
         syncCircleMarkers();
     });
 
@@ -1521,6 +1542,7 @@ function setupEventListeners() {
 
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
+        if (state.editMode) return;
         if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
             mobileSidebarToggle.querySelector('i').className = 'fa-solid fa-bars';

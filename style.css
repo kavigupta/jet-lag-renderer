@@ -1103,23 +1103,27 @@ input:checked + .slider:before {
 
 /* Circle drag handles on map */
 .circle-center-marker {
-    width: 14px;
-    height: 14px;
+    width: 22px;
+    height: 22px;
     border-radius: 50%;
-    background: #fff;
-    border: 2px solid #38bdf8;
+    background: #38bdf8;
+    border: 3px solid #fff;
     cursor: grab;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    touch-action: none;
+    user-select: none;
 }
 
 .circle-center-marker:active { cursor: grabbing; }
 
 .circle-handle-marker {
-    width: 10px;
-    height: 10px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: #38bdf8;
-    border: 2px solid #fff;
+    background: #f97316;
+    border: 3px solid #fff;
     cursor: ew-resize;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    touch-action: none;
+    user-select: none;
 }
