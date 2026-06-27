@@ -865,6 +865,38 @@ function updateAdminClue(id, changes) {
     onAdminCluesChanged();
 }
 
+const GAME_LAYERS_TO_HIDE_WHILE_PICKING = [
+    'game-region-outside-fill', 'game-region-border',
+    'hiding-regions-fill', 'hiding-regions-stroke',
+    'stations-circle', 'stations-number', 'stations-label',
+    'circles-stroke', 'thermometer-chords', 'thermometer-bisectors',
+];
+
+function enterAdminPickingMode(level) {
+    GAME_LAYERS_TO_HIDE_WHILE_PICKING.forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+    [`admin${level}-picking-fill`, `admin${level}-picking-stroke`, `admin${level}-picking-labels`].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+}
+
+function exitAdminPickingMode() {
+    [1, 2].forEach(lvl => {
+        [`admin${lvl}-picking-fill`, `admin${lvl}-picking-stroke`, `admin${lvl}-picking-labels`].forEach(id => {
+            if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+        });
+    });
+    GAME_LAYERS_TO_HIDE_WHILE_PICKING.forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+    // Re-apply state-dependent visibility
+    const hideRegions = state.globalRegionsVisible ? 'visible' : 'none';
+    ['hiding-regions-fill', 'hiding-regions-stroke'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', hideRegions);
+    });
+}
+
 function renderAdminCluesList() {
     const container = document.getElementById('admin-clues-list-container');
     if (!container) return;
@@ -1346,14 +1378,62 @@ function setupMapLayers() {
     }
     renderThermometersList();
 
-    // Admin clue layers
+    // Admin clue layers (just the data source, no visible layers)
     if (!map.getSource('admin-clues')) {
         map.addSource('admin-clues', { type: 'geojson', data: buildAdminCluesGeoJson() });
     }
-
     if (state.adminClues.length > 0) {
         map.getSource('admin-clues')?.setData(buildAdminCluesGeoJson());
     }
+
+    // Admin picking layers (hidden until picking mode is active)
+    [{ level: 1, data: admin1Data, labelField: ['concat', 'AD', ['get', 'DISTRICT']] },
+     { level: 2, data: admin2Data, labelField: ['get', 'name'] }].forEach(({ level, data, labelField }) => {
+        if (!data) return;
+        const src = `admin${level}-picking`;
+        if (!map.getSource(src)) {
+            map.addSource(src, { type: 'geojson', data });
+        }
+        if (!map.getLayer(`admin${level}-picking-fill`)) {
+            map.addLayer({
+                id: `admin${level}-picking-fill`,
+                type: 'fill',
+                source: src,
+                layout: { visibility: 'none' },
+                paint: { 'fill-color': '#94a3b8', 'fill-opacity': 0.12 }
+            });
+        }
+        if (!map.getLayer(`admin${level}-picking-stroke`)) {
+            map.addLayer({
+                id: `admin${level}-picking-stroke`,
+                type: 'line',
+                source: src,
+                layout: { visibility: 'none' },
+                paint: { 'line-color': '#334155', 'line-width': 1.5, 'line-opacity': 0.8 }
+            });
+        }
+        if (!map.getLayer(`admin${level}-picking-labels`)) {
+            map.addLayer({
+                id: `admin${level}-picking-labels`,
+                type: 'symbol',
+                source: src,
+                layout: {
+                    visibility: 'none',
+                    'text-field': labelField,
+                    'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+                    'text-size': 11,
+                    'text-max-width': 8,
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#0f172a',
+                    'text-halo-color': '#ffffff',
+                    'text-halo-width': 2
+                }
+            });
+        }
+    });
+
     renderAdminCluesList();
 
     // Apply filters based on initial state
@@ -1398,6 +1478,16 @@ function fitMapToBounds() {
 
 // Map interactions
 function setupMapEvents() {
+    // Pointer cursor over admin picking layers
+    [1, 2].forEach(lvl => {
+        map.on('mousemove', `admin${lvl}-picking-fill`, () => {
+            if (addingAdminClueLevel === lvl) map.getCanvas().style.cursor = 'pointer';
+        });
+        map.on('mouseleave', `admin${lvl}-picking-fill`, () => {
+            if (addingAdminClueLevel === lvl) map.getCanvas().style.cursor = 'crosshair';
+        });
+    });
+
     const interactiveLayers = ['stations-circle', 'stations-number'];
     
     interactiveLayers.forEach(layerId => {
@@ -1938,9 +2028,12 @@ function setupEventListeners() {
             if (addingAdminClueLevel === level) {
                 addingAdminClueLevel = 0;
                 map.getCanvas().style.cursor = '';
+                exitAdminPickingMode();
             } else {
+                if (addingAdminClueLevel > 0) exitAdminPickingMode();
                 addingAdminClueLevel = level;
                 map.getCanvas().style.cursor = 'crosshair';
+                enterAdminPickingMode(level);
             }
             document.getElementById('btn-add-admin1').classList.toggle('active', addingAdminClueLevel === 1);
             document.getElementById('btn-add-admin2').classList.toggle('active', addingAdminClueLevel === 2);
@@ -1949,7 +2042,7 @@ function setupEventListeners() {
 
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
-        if (state.editMode) return;
+        if (state.editMode && addingAdminClueLevel === 0) return;
 
         if (addingThermometerMode) {
             const pt = [e.lngLat.lng, e.lngLat.lat];
@@ -1978,12 +2071,11 @@ function setupEventListeners() {
         if (addingAdminClueLevel > 0) {
             const level = addingAdminClueLevel;
             const added = addAdminClue(level, e.lngLat);
-            if (added) {
-                addingAdminClueLevel = 0;
-                document.getElementById(`btn-add-admin1`).classList.remove('active');
-                document.getElementById(`btn-add-admin2`).classList.remove('active');
-                map.getCanvas().style.cursor = '';
-            }
+            addingAdminClueLevel = 0;
+            document.getElementById('btn-add-admin1').classList.remove('active');
+            document.getElementById('btn-add-admin2').classList.remove('active');
+            map.getCanvas().style.cursor = '';
+            exitAdminPickingMode();
             return;
         }
 
