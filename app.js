@@ -5,6 +5,7 @@ const state = {
     gameRegion: null,
     enabledHidingRegions: new Set(),
     circles: [],
+    thermometers: [],
     editMode: false,
     globalRegionsVisible: true,
     gameRegionVisible: true,
@@ -47,6 +48,12 @@ let dataLoaded = false;
 let circleMarkers = new Map();
 let nextCircleId = 1;
 let addingCircleMode = false;
+
+let thermometerMarkers = new Map(); // id → { p1, p2 }
+let nextThermometerId = 1;
+let addingThermometerMode = false;
+let pendingThermometerPoint = null;
+let pendingThermometerMarker = null;
 
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
@@ -260,6 +267,10 @@ function loadProfiles() {
     if (active.circles?.length > 0) {
         nextCircleId = Math.max(...active.circles.map(c => parseInt(c.id.replace('c', '')) || 0)) + 1;
     }
+    state.thermometers = (active.thermometers || []).map(t => ({ ...t }));
+    if (active.thermometers?.length > 0) {
+        nextThermometerId = Math.max(...active.thermometers.map(t => parseInt(t.id.replace('th', '')) || 0)) + 1;
+    }
 }
 
 function saveProfiles() {
@@ -383,7 +394,8 @@ function applyProfile(profileId) {
     state.gameRegionVisible = profile.gameRegionVisible;
     state.activeDatasets = new Set(profile.activeDatasets);
     state.circles = (profile.circles || []).map(c => ({ ...c }));
-    
+    state.thermometers = (profile.thermometers || []).map(t => ({ ...t }));
+
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
     gameRegionToggle.checked = state.gameRegionVisible;
@@ -401,6 +413,7 @@ function applyProfile(profileId) {
         map.getSource('hiding-regions').setData(generateHidingRegionsGeoJson());
         applyFiltersToMap();
         onCirclesChanged();
+        onThermometersChanged();
     }
 
     renderStationList();
@@ -423,9 +436,10 @@ function createProfile() {
         globalRegionsVisible: state.globalRegionsVisible,
         gameRegionVisible: state.gameRegionVisible,
         activeDatasets: Array.from(state.activeDatasets),
-        circles: state.circles.map(c => ({ ...c }))
+        circles: state.circles.map(c => ({ ...c })),
+        thermometers: state.thermometers.map(t => ({ ...t }))
     };
-    
+
     state.profiles.push(newProfile);
     state.activeProfileId = id;
     
@@ -465,6 +479,7 @@ function saveToActiveProfile() {
     profile.gameRegionVisible = state.gameRegionVisible;
     profile.activeDatasets = Array.from(state.activeDatasets);
     profile.circles = state.circles.map(c => ({ ...c }));
+    profile.thermometers = state.thermometers.map(t => ({ ...t }));
     saveProfiles();
 }
 
@@ -523,6 +538,34 @@ function normalizeToFeature(geoJson) {
     return turf.feature(geoJson);
 }
 
+// Returns the half-plane polygon on the "active" side of a thermometer clue.
+// "hotter" → target is closer to point1 → keep point1's side of the bisector.
+// "colder" → target is closer to point2 → keep point2's side.
+function thermometerHalfPlane(t) {
+    const [x1, y1] = t.point1;
+    const [x2, y2] = t.point2;
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len < 1e-10) return null;
+    const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    // Unit perpendicular to P1→P2 (bisector direction)
+    const nx = -dy / len, ny = dx / len;
+    const ext = 500; // degrees – enough to cover the world
+    const far = ext * 2;
+    // "hotter" = latter point (point2) is closer to target → keep point2's side
+    // "colder" = former point (point1) is closer to target → keep point1's side
+    const toP2 = [dx / len, dy / len];
+    const sideDir = t.type === 'hotter' ? toP2 : [-dx / len, -dy / len];
+    const b1 = [mx + nx * ext, my + ny * ext];
+    const b2 = [mx - nx * ext, my - ny * ext];
+    return turf.polygon([[
+        [b1[0] + sideDir[0] * far, b1[1] + sideDir[1] * far],
+        [b2[0] + sideDir[0] * far, b2[1] + sideDir[1] * far],
+        b2, b1,
+        [b1[0] + sideDir[0] * far, b1[1] + sideDir[1] * far],
+    ]]);
+}
+
 function computeActiveZone() {
     let zone = normalizeToFeature(state.gameRegion);
     for (const c of state.circles.filter(c => c.type === 'hit')) {
@@ -534,6 +577,13 @@ function computeActiveZone() {
     for (const c of state.circles.filter(c => c.type === 'miss')) {
         const circ = turf.circle(c.center, c.radiusMiles, { units: 'miles', steps: 64 });
         const result = turf.difference(zone, circ);
+        if (!result) return null;
+        zone = result;
+    }
+    for (const t of state.thermometers) {
+        const half = thermometerHalfPlane(t);
+        if (!half) continue;
+        const result = turf.intersect(zone, half);
         if (!result) return null;
         zone = result;
     }
@@ -549,6 +599,175 @@ function buildCirclesGeoJson() {
             return f;
         })
     };
+}
+
+// ── Thermometer helpers ───────────────────────────────────────────────────────
+
+function buildThermometersGeoJson() {
+    const features = [];
+    for (const t of state.thermometers) {
+        const [x1, y1] = t.point1;
+        const [x2, y2] = t.point2;
+        const dx = x2 - x1, dy = y2 - y1;
+        const len = Math.sqrt(dx * dx + dy * dy);
+
+        // Chord between the two points
+        features.push({
+            type: 'Feature',
+            properties: { id: t.id, featureType: 'chord', thermoType: t.type },
+            geometry: { type: 'LineString', coordinates: [t.point1, t.point2] }
+        });
+
+        // Perpendicular bisector (extended to cover map)
+        if (len > 1e-10) {
+            const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+            const nx = -dy / len, ny = dx / len;
+            const ext = 100;
+            features.push({
+                type: 'Feature',
+                properties: { id: t.id, featureType: 'bisector', thermoType: t.type },
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [
+                        [mx + nx * ext, my + ny * ext],
+                        [mx - nx * ext, my - ny * ext]
+                    ]
+                }
+            });
+        }
+    }
+    return { type: 'FeatureCollection', features };
+}
+
+function onThermometersChanged() {
+    if (!isMapReady) return;
+    map.getSource('thermometers')?.setData(buildThermometersGeoJson());
+    const activeZone = computeActiveZone();
+    map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
+    syncThermometerMarkers();
+    updateStats();
+    renderThermometersList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+function syncThermometerMarkers() {
+    // Remove markers for deleted thermometers
+    for (const [id, m] of thermometerMarkers) {
+        if (!state.thermometers.find(t => t.id === id)) {
+            m.p1.remove(); m.p2.remove();
+            thermometerMarkers.delete(id);
+        }
+    }
+    if (!state.editMode) {
+        for (const [, m] of thermometerMarkers) { m.p1.remove(); m.p2.remove(); }
+        thermometerMarkers.clear();
+        return;
+    }
+    for (const t of state.thermometers) {
+        if (thermometerMarkers.has(t.id)) {
+            const m = thermometerMarkers.get(t.id);
+            m.p1.setLngLat(t.point1);
+            m.p2.setLngLat(t.point2);
+        } else {
+            const color = t.type === 'hotter' ? '#ef4444' : '#3b82f6';
+            const p1El = document.createElement('div');
+            p1El.className = 'thermo-marker thermo-p1';
+            p1El.style.background = color;
+            const p1Marker = new maplibregl.Marker({ element: p1El, draggable: true })
+                .setLngLat(t.point1).addTo(map);
+
+            const p2El = document.createElement('div');
+            p2El.className = 'thermo-marker thermo-p2';
+            p2El.style.background = color;
+            const p2Marker = new maplibregl.Marker({ element: p2El, draggable: true })
+                .setLngLat(t.point2).addTo(map);
+
+            const id = t.id;
+            const refresh = () => {
+                map.getSource('thermometers')?.setData(buildThermometersGeoJson());
+                const az = computeActiveZone();
+                map.getSource('game-region-outside')?.setData(buildOutsideMask(az));
+            };
+            p1Marker.on('drag', () => {
+                const th = state.thermometers.find(x => x.id === id);
+                if (!th) return;
+                const ll = p1Marker.getLngLat();
+                th.point1 = [ll.lng, ll.lat];
+                refresh();
+            });
+            p1Marker.on('dragend', () => { updateStats(); renderThermometersList(); saveToActiveProfile(); });
+
+            p2Marker.on('drag', () => {
+                const th = state.thermometers.find(x => x.id === id);
+                if (!th) return;
+                const ll = p2Marker.getLngLat();
+                th.point2 = [ll.lng, ll.lat];
+                refresh();
+            });
+            p2Marker.on('dragend', () => { updateStats(); renderThermometersList(); saveToActiveProfile(); });
+
+            thermometerMarkers.set(id, { p1: p1Marker, p2: p2Marker });
+        }
+    }
+}
+
+function addThermometer(point1, point2) {
+    const id = `th${nextThermometerId++}`;
+    state.thermometers.push({ id, point1, point2, type: 'hotter' });
+    onThermometersChanged();
+}
+
+function deleteThermometer(id) {
+    state.thermometers = state.thermometers.filter(t => t.id !== id);
+    onThermometersChanged();
+}
+
+function updateThermometer(id, changes) {
+    const t = state.thermometers.find(t => t.id === id);
+    if (!t) return;
+    Object.assign(t, changes);
+    onThermometersChanged();
+}
+
+function renderThermometersList() {
+    const container = document.getElementById('thermometers-list-container');
+    if (!container) return;
+    if (state.thermometers.length === 0) {
+        container.innerHTML = '<div class="empty-state-small" style="padding:8px 0;font-size:11px;color:var(--text-muted)">No thermometers. Click + Add then click two points.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.thermometers.forEach((t, idx) => {
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.dataset.id = t.id;
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index">#${idx + 1}</span>
+                <div class="circle-type-btns">
+                    <button class="circle-type-btn hit ${t.type === 'hotter' ? 'active' : ''}" data-type="hotter" style="--active-bg:#ef4444">Hotter</button>
+                    <button class="circle-type-btn miss ${t.type === 'colder' ? 'active' : ''}" data-type="colder" style="--active-bg:#3b82f6">Colder</button>
+                </div>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelectorAll('.circle-type-btn').forEach(btn =>
+            btn.addEventListener('click', () => {
+                updateThermometer(t.id, { type: btn.dataset.type });
+                if (state.editMode) {
+                    // recolor markers
+                    const m = thermometerMarkers.get(t.id);
+                    if (m) {
+                        const color = btn.dataset.type === 'hotter' ? '#ef4444' : '#3b82f6';
+                        m.p1.getElement().style.background = color;
+                        m.p2.getElement().style.background = color;
+                    }
+                }
+            })
+        );
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteThermometer(t.id));
+        container.appendChild(item);
+    });
 }
 
 function getRadiusHandlePos(circle) {
@@ -582,15 +801,14 @@ function onCirclesChanged() {
 }
 
 function applyEditModeVisuals(active) {
-    const dim = active ? 0.15 : null;
-    const dimLine = active ? 0.1 : null;
+    const dim = active ? 0.12 : null;
     const layers = [
-        ['stations-circle',       'circle-opacity',    dim ?? 1],
+        ['stations-circle',       'circle-opacity',        dim ?? 1],
         ['stations-circle',       'circle-stroke-opacity', dim ?? 1],
-        ['stations-number',       'text-opacity',      dim ?? 1],
-        ['hiding-regions',        'fill-opacity',      dim ?? 0.15],
-        ['hiding-regions-stroke', 'line-opacity',      dimLine ?? 0.4],
-        ['game-region-outline',   'line-opacity',      dimLine ?? 0.8],
+        ['stations-number',       'text-opacity',          dim ?? 1],
+        ['hiding-regions-fill',   'fill-opacity',          active ? 0.04 : 0.15],
+        ['hiding-regions-stroke', 'line-opacity',          dim ?? 0.4],
+        ['game-region-border',    'line-opacity',          dim ?? 0.95],
     ];
     for (const [id, prop, val] of layers) {
         if (map.getLayer(id)) map.setPaintProperty(id, prop, val);
@@ -957,10 +1175,50 @@ function setupMapLayers() {
     // Populate circles source from restored state
     if (state.circles.length > 0) {
         map.getSource('circles')?.setData(buildCirclesGeoJson());
-        const activeZone = computeActiveZone();
-        map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
     }
     renderCirclesList();
+
+    // Thermometer layers
+    if (!map.getSource('thermometers')) {
+        map.addSource('thermometers', { type: 'geojson', data: buildThermometersGeoJson() });
+    }
+    if (!map.getLayer('thermometer-chords')) {
+        map.addLayer({
+            id: 'thermometer-chords',
+            type: 'line',
+            source: 'thermometers',
+            filter: ['==', ['get', 'featureType'], 'chord'],
+            paint: {
+                'line-color': ['match', ['get', 'thermoType'], 'hotter', '#ef4444', '#3b82f6'],
+                'line-width': 2,
+                'line-opacity': 0.7
+            }
+        });
+    }
+    if (!map.getLayer('thermometer-bisectors')) {
+        map.addLayer({
+            id: 'thermometer-bisectors',
+            type: 'line',
+            source: 'thermometers',
+            filter: ['==', ['get', 'featureType'], 'bisector'],
+            paint: {
+                'line-color': ['match', ['get', 'thermoType'], 'hotter', '#ef4444', '#3b82f6'],
+                'line-width': 1.5,
+                'line-opacity': 0.6,
+                'line-dasharray': [6, 4]
+            }
+        });
+    }
+
+    // Populate thermometers + recompute mask from full restored state
+    {
+        const activeZone = computeActiveZone();
+        map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
+        if (state.thermometers.length > 0) {
+            map.getSource('thermometers')?.setData(buildThermometersGeoJson());
+        }
+    }
+    renderThermometersList();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -1211,7 +1469,7 @@ function updateStats() {
     statTotalStations.textContent = activeStations.length;
 
     let activeHidingCount;
-    if (state.circles.length > 0) {
+    if (state.circles.length > 0 || state.thermometers.length > 0) {
         const activeZone = computeActiveZone();
         activeHidingCount = activeZone
             ? activeStations.filter(s => turf.booleanPointInPolygon(
@@ -1322,7 +1580,7 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
-        const toggleHtml = state.circles.length === 0 ? `
+        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0) ? `
                 <label class="switch">
                     <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -1519,15 +1777,33 @@ function setupEventListeners() {
         map.getCanvas().style.cursor = addingCircleMode ? 'crosshair' : '';
     });
 
-    document.getElementById('btn-edit-circles').addEventListener('click', () => {
+    // Thermometer Add button (two-click to place point1 then point2)
+    document.getElementById('btn-add-thermometer').addEventListener('click', () => {
+        addingThermometerMode = !addingThermometerMode;
+        document.getElementById('btn-add-thermometer').classList.toggle('active', addingThermometerMode);
+        if (!addingThermometerMode) {
+            if (pendingThermometerMarker) { pendingThermometerMarker.remove(); pendingThermometerMarker = null; }
+            pendingThermometerPoint = null;
+            document.getElementById('btn-add-thermometer').textContent = '+ Add';
+            map.getCanvas().style.cursor = '';
+        } else {
+            map.getCanvas().style.cursor = 'crosshair';
+        }
+    });
+
+    const toggleEditMode = () => {
         state.editMode = !state.editMode;
         document.getElementById('btn-edit-circles').classList.toggle('active', state.editMode);
+        document.getElementById('btn-edit-thermometers').classList.toggle('active', state.editMode);
         map.getCanvas().style.cursor = state.editMode ? 'default' : '';
         const hint = document.getElementById('circles-edit-hint');
         if (hint) hint.style.display = state.editMode ? 'block' : 'none';
         applyEditModeVisuals(state.editMode);
         syncCircleMarkers();
-    });
+        syncThermometerMarkers();
+    };
+    document.getElementById('btn-edit-circles').addEventListener('click', toggleEditMode);
+    document.getElementById('btn-edit-thermometers').addEventListener('click', toggleEditMode);
 
     // Mobile Sidebar Drawer Toggle
     mobileSidebarToggle.addEventListener('click', () => {
@@ -1543,6 +1819,31 @@ function setupEventListeners() {
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
         if (state.editMode) return;
+
+        if (addingThermometerMode) {
+            const pt = [e.lngLat.lng, e.lngLat.lat];
+            if (!pendingThermometerPoint) {
+                // First click: drop a placeholder marker
+                pendingThermometerPoint = pt;
+                const el = document.createElement('div');
+                el.className = 'thermo-marker thermo-pending';
+                pendingThermometerMarker = new maplibregl.Marker({ element: el })
+                    .setLngLat(pt).addTo(map);
+                document.getElementById('btn-add-thermometer').textContent = 'Click 2nd…';
+            } else {
+                // Second click: create thermometer
+                addThermometer(pendingThermometerPoint, pt);
+                pendingThermometerMarker.remove();
+                pendingThermometerMarker = null;
+                pendingThermometerPoint = null;
+                addingThermometerMode = false;
+                document.getElementById('btn-add-thermometer').classList.remove('active');
+                document.getElementById('btn-add-thermometer').textContent = '+ Add';
+                map.getCanvas().style.cursor = '';
+            }
+            return;
+        }
+
         if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
             mobileSidebarToggle.querySelector('i').className = 'fa-solid fa-bars';
