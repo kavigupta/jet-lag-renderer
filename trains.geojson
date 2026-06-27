@@ -40,7 +40,6 @@
 { "type": "Feature", "properties": { "STOP_ID": "80208", "STOP_NAME": "Vermont / Beverly Station", "STOP_LAT": 34.076526, "STOP_LON": -118.291686 }, "geometry": { "type": "Point", "coordinates": [ -118.291686, 34.076526 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "80209", "STOP_NAME": "Wilshire / Vermont Station", "STOP_LAT": 34.062701, "STOP_LON": -118.290082 }, "geometry": { "type": "Point", "coordinates": [ -118.290082, 34.062701 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "80210", "STOP_NAME": "Westlake / MacArthur Park Station", "STOP_LAT": 34.056368, "STOP_LON": -118.274879 }, "geometry": { "type": "Point", "coordinates": [ -118.274879, 34.056368 ] } },
-{ "type": "Feature", "properties": { "STOP_ID": "80211", "STOP_NAME": "7th Street / Metro Center Station - Metro B & D Lines", "STOP_LAT": 34.048634, "STOP_LON": -118.258682 }, "geometry": { "type": "Point", "coordinates": [ -118.258682, 34.048634 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "80212", "STOP_NAME": "Pershing Square Station", "STOP_LAT": 34.049316, "STOP_LON": -118.251259 }, "geometry": { "type": "Point", "coordinates": [ -118.251259, 34.049316 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "80213", "STOP_NAME": "Civic Center / Grand Park Station", "STOP_LAT": 34.0549, "STOP_LON": -118.246057 }, "geometry": { "type": "Point", "coordinates": [ -118.246057, 34.0549 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "80215", "STOP_NAME": "Wilshire / Normandie Station", "STOP_LAT": 34.061753, "STOP_LON": -118.301458 }, "geometry": { "type": "Point", "coordinates": [ -118.301458, 34.061753 ] } },
@@ -87,8 +86,8 @@
 { "type": "Feature", "properties": { "STOP_ID": "81401", "STOP_NAME": "Grand Ave Arts / Bunker Hill Station", "STOP_LAT": 34.054724, "STOP_LON": -118.251531 }, "geometry": { "type": "Point", "coordinates": [ -118.251531, 34.054724 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "81402", "STOP_NAME": "Historic Broadway Station", "STOP_LAT": 34.052156, "STOP_LON": -118.246321 }, "geometry": { "type": "Point", "coordinates": [ -118.246321, 34.052156 ] } },
 { "type": "Feature", "properties": { "STOP_ID": "81403", "STOP_NAME": "Little Tokyo / Arts District Station", "STOP_LAT": 34.048845, "STOP_LON": -118.238757 }, "geometry": { "type": "Point", "coordinates": [ -118.238757, 34.048845 ] } },
-{ "type": "Feature", "properties": { "STOP_ID": "99991", "STOP_NAME": "Wilshire \/ La Brea", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.343971717653972, 34.061969000302199 ] } },
-{ "type": "Feature", "properties": { "STOP_ID": "99992", "STOP_NAME": "Wilshire \/ Fairfax", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.361441400998473, 34.06303269366564 ] } },
-{ "type": "Feature", "properties": { "STOP_ID": "99993", "STOP_NAME": "Wilshire \/ La Cienega", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.375939953368743, 34.06533929652592 ] } }
+{ "type": "Feature", "properties": { "STOP_ID": "99991", "STOP_NAME": "Wilshire / La Brea", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.343971717653972, 34.061969000302199 ] } },
+{ "type": "Feature", "properties": { "STOP_ID": "99992", "STOP_NAME": "Wilshire / Fairfax", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.361441400998473, 34.06303269366564 ] } },
+{ "type": "Feature", "properties": { "STOP_ID": "99993", "STOP_NAME": "Wilshire / La Cienega", "STOP_LAT": null, "STOP_LON": null }, "geometry": { "type": "Point", "coordinates": [ -118.375939953368743, 34.06533929652592 ] } }
 ]
 }
