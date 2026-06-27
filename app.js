@@ -6,6 +6,7 @@ const state = {
     enabledHidingRegions: new Set(),
     circles: [],
     thermometers: [],
+    adminClues: [],
     editMode: false,
     globalRegionsVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
@@ -54,6 +55,11 @@ let addingThermometerMode = false;
 let pendingThermometerPoint = null;
 let pendingThermometerMarker = null;
 
+let admin1Data = null;
+let admin2Data = null;
+let nextAdminClueId = 1;
+let addingAdminClueLevel = 0; // 0 = off, 1 or 2 = picking
+
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
 const clearSearchBtn = document.getElementById('clear-search');
@@ -85,7 +91,7 @@ async function init() {
         restoreLastSessionState();
 
         // Load data in parallel
-        const [regionData, stationsData, metroData] = await Promise.all([
+        const [regionData, stationsData, metroData, a1, a2] = await Promise.all([
             fetch('game-region.geojson').then(r => {
                 if (!r.ok) throw new Error('Failed to load game-region.geojson');
                 return r.json();
@@ -97,8 +103,12 @@ async function init() {
             fetch('trains.geojson').then(r => {
                 if (!r.ok) throw new Error('Failed to load trains.geojson');
                 return r.json();
-            })
+            }),
+            fetch('First%20level%20administrative.geojson').then(r => r.ok ? r.json() : null).catch(() => null),
+            fetch('Second%20level%20administrative.geojson').then(r => r.ok ? r.json() : null).catch(() => null),
         ]);
+        admin1Data = a1;
+        admin2Data = a2;
 
         state.gameRegion = regionData;
         
@@ -263,6 +273,10 @@ function loadProfiles() {
     if (active.thermometers?.length > 0) {
         nextThermometerId = Math.max(...active.thermometers.map(t => parseInt(t.id.replace('th', '')) || 0)) + 1;
     }
+    state.adminClues = (active.adminClues || []).map(c => ({ ...c }));
+    if (active.adminClues?.length > 0) {
+        nextAdminClueId = Math.max(...active.adminClues.map(c => parseInt(c.id.replace('adm', '')) || 0)) + 1;
+    }
 }
 
 function saveProfiles() {
@@ -386,6 +400,7 @@ function applyProfile(profileId) {
     state.activeDatasets = new Set(profile.activeDatasets);
     state.circles = (profile.circles || []).map(c => ({ ...c }));
     state.thermometers = (profile.thermometers || []).map(t => ({ ...t }));
+    state.adminClues = (profile.adminClues || []).map(c => ({ ...c }));
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
@@ -404,6 +419,7 @@ function applyProfile(profileId) {
         applyFiltersToMap();
         onCirclesChanged();
         onThermometersChanged();
+        onAdminCluesChanged();
     }
 
     renderStationList();
@@ -426,7 +442,8 @@ function createProfile() {
         globalRegionsVisible: state.globalRegionsVisible,
         activeDatasets: Array.from(state.activeDatasets),
         circles: state.circles.map(c => ({ ...c })),
-        thermometers: state.thermometers.map(t => ({ ...t }))
+        thermometers: state.thermometers.map(t => ({ ...t })),
+        adminClues: state.adminClues.map(c => ({ ...c }))
     };
 
     state.profiles.push(newProfile);
@@ -467,6 +484,7 @@ function saveToActiveProfile() {
     profile.activeDatasets = Array.from(state.activeDatasets);
     profile.circles = state.circles.map(c => ({ ...c }));
     profile.thermometers = state.thermometers.map(t => ({ ...t }));
+    profile.adminClues = state.adminClues.map(c => ({ ...c }));
     saveProfiles();
 }
 
@@ -573,6 +591,19 @@ function computeActiveZone() {
         const result = turf.intersect(zone, half);
         if (!result) return null;
         zone = result;
+    }
+    for (const clue of state.adminClues) {
+        const poly = getAdminPolygon(clue.level, clue.featureKey);
+        if (!poly) continue;
+        if (clue.type === 'hit') {
+            const result = turf.intersect(zone, poly);
+            if (!result) return null;
+            zone = result;
+        } else {
+            const result = turf.difference(zone, poly);
+            if (!result) return null;
+            zone = result;
+        }
     }
     return zone;
 }
@@ -753,6 +784,114 @@ function renderThermometersList() {
             })
         );
         item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteThermometer(t.id));
+        container.appendChild(item);
+    });
+}
+
+// ── Administrative clue helpers ───────────────────────────────────────────────
+
+function adminFeatureName(level, feature) {
+    if (level === 1) {
+        const p = feature.properties;
+        return `AD${p.DISTRICT} — ${p.NAME} ${p.LAST_NAME}`;
+    }
+    const p = feature.properties;
+    return p.name || p.CITY_NAME || 'Unknown';
+}
+
+function adminFeatureKey(level, feature) {
+    return level === 1 ? feature.properties.DISTRICT : feature.properties.name;
+}
+
+function getAdminPolygon(level, featureKey) {
+    const data = level === 1 ? admin1Data : admin2Data;
+    if (!data) return null;
+    return data.features.find(f => adminFeatureKey(level, f) === featureKey) || null;
+}
+
+function findAdminPolygonAt(level, lngLat) {
+    const data = level === 1 ? admin1Data : admin2Data;
+    if (!data) return null;
+    const pt = turf.point([lngLat.lng, lngLat.lat]);
+    return data.features.find(f => {
+        try { return turf.booleanPointInPolygon(pt, f); } catch { return false; }
+    }) || null;
+}
+
+function buildAdminCluesGeoJson() {
+    const features = [];
+    for (const clue of state.adminClues) {
+        const poly = getAdminPolygon(clue.level, clue.featureKey);
+        if (!poly) continue;
+        features.push({
+            type: 'Feature',
+            properties: { clueId: clue.id, clueType: clue.type, clueLevel: clue.level },
+            geometry: poly.geometry
+        });
+    }
+    return { type: 'FeatureCollection', features };
+}
+
+function onAdminCluesChanged() {
+    if (!isMapReady) return;
+    map.getSource('admin-clues')?.setData(buildAdminCluesGeoJson());
+    const activeZone = computeActiveZone();
+    map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
+    updateStats();
+    renderAdminCluesList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+function addAdminClue(level, lngLat) {
+    const feature = findAdminPolygonAt(level, lngLat);
+    if (!feature) return false;
+    const key = adminFeatureKey(level, feature);
+    if (state.adminClues.find(c => c.level === level && c.featureKey === key)) return false; // already added
+    const id = `adm${nextAdminClueId++}`;
+    state.adminClues.push({ id, level, name: adminFeatureName(level, feature), featureKey: key, type: 'hit' });
+    onAdminCluesChanged();
+    return true;
+}
+
+function deleteAdminClue(id) {
+    state.adminClues = state.adminClues.filter(c => c.id !== id);
+    onAdminCluesChanged();
+}
+
+function updateAdminClue(id, changes) {
+    const clue = state.adminClues.find(c => c.id === id);
+    if (clue) Object.assign(clue, changes);
+    onAdminCluesChanged();
+}
+
+function renderAdminCluesList() {
+    const container = document.getElementById('admin-clues-list-container');
+    if (!container) return;
+    if (state.adminClues.length === 0) {
+        container.innerHTML = '<div class="empty-state-small" style="padding:8px 0;font-size:11px;color:var(--text-muted)">No clues yet. Click + L1 or + L2 then click the map.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.adminClues.forEach((clue, idx) => {
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.dataset.id = clue.id;
+        const levelLabel = clue.level === 1 ? 'L1' : 'L2';
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index">${levelLabel}</span>
+                <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px" title="${clue.name}">${clue.name}</span>
+                <div class="circle-type-btns">
+                    <button class="circle-type-btn hit ${clue.type === 'hit' ? 'active' : ''}" data-type="hit">Hit</button>
+                    <button class="circle-type-btn miss ${clue.type === 'miss' ? 'active' : ''}" data-type="miss">Miss</button>
+                </div>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelectorAll('.circle-type-btn').forEach(btn =>
+            btn.addEventListener('click', () => updateAdminClue(clue.id, { type: btn.dataset.type }))
+        );
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteAdminClue(clue.id));
         container.appendChild(item);
     });
 }
@@ -1207,6 +1346,16 @@ function setupMapLayers() {
     }
     renderThermometersList();
 
+    // Admin clue layers
+    if (!map.getSource('admin-clues')) {
+        map.addSource('admin-clues', { type: 'geojson', data: buildAdminCluesGeoJson() });
+    }
+
+    if (state.adminClues.length > 0) {
+        map.getSource('admin-clues')?.setData(buildAdminCluesGeoJson());
+    }
+    renderAdminCluesList();
+
     // Apply filters based on initial state
     applyFiltersToMap();
 
@@ -1456,7 +1605,7 @@ function updateStats() {
     statTotalStations.textContent = activeStations.length;
 
     let activeHidingCount;
-    if (state.circles.length > 0 || state.thermometers.length > 0) {
+    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0) {
         const activeZone = computeActiveZone();
         activeHidingCount = activeZone
             ? activeStations.filter(s => turf.booleanPointInPolygon(
@@ -1567,7 +1716,7 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
-        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0) ? `
+        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0) ? `
                 <label class="switch">
                     <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -1783,6 +1932,21 @@ function setupEventListeners() {
     document.getElementById('btn-edit-circles').addEventListener('click', toggleEditMode);
     document.getElementById('btn-edit-thermometers').addEventListener('click', toggleEditMode);
 
+    // Admin clue add buttons
+    [1, 2].forEach(level => {
+        document.getElementById(`btn-add-admin${level}`).addEventListener('click', () => {
+            if (addingAdminClueLevel === level) {
+                addingAdminClueLevel = 0;
+                map.getCanvas().style.cursor = '';
+            } else {
+                addingAdminClueLevel = level;
+                map.getCanvas().style.cursor = 'crosshair';
+            }
+            document.getElementById('btn-add-admin1').classList.toggle('active', addingAdminClueLevel === 1);
+            document.getElementById('btn-add-admin2').classList.toggle('active', addingAdminClueLevel === 2);
+        });
+    });
+
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
         if (state.editMode) return;
@@ -1806,6 +1970,18 @@ function setupEventListeners() {
                 addingThermometerMode = false;
                 document.getElementById('btn-add-thermometer').classList.remove('active');
                 document.getElementById('btn-add-thermometer').textContent = '+ Add';
+                map.getCanvas().style.cursor = '';
+            }
+            return;
+        }
+
+        if (addingAdminClueLevel > 0) {
+            const level = addingAdminClueLevel;
+            const added = addAdminClue(level, e.lngLat);
+            if (added) {
+                addingAdminClueLevel = 0;
+                document.getElementById(`btn-add-admin1`).classList.remove('active');
+                document.getElementById(`btn-add-admin2`).classList.remove('active');
                 map.getCanvas().style.cursor = '';
             }
             return;
