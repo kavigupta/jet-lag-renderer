@@ -25,11 +25,6 @@
 </head>
 <body>
     <div id="app-container">
-        <!-- Mobile Sidebar Toggle -->
-        <button id="mobile-sidebar-toggle" class="sidebar-toggle-btn glass-panel" title="Toggle Menu">
-            <i class="fa-solid fa-bars"></i>
-        </button>
-
         <!-- Sidebar Panel -->
         <aside id="sidebar" class="glass-panel">
             <header class="sidebar-header">
@@ -54,65 +49,6 @@
                 </div>
             </section>
 
-            <section class="controls-panel">
-                <div class="control-row">
-                    <span class="control-label"><i class="fa-solid fa-eye-slash"></i> Hiding Regions (All)</span>
-                    <label class="switch">
-                        <input type="checkbox" id="global-regions-toggle" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                <div class="control-row">
-                    <span class="control-label"><i class="fa-solid fa-draw-polygon"></i> Game Boundary</span>
-                    <label class="switch">
-                        <input type="checkbox" id="game-region-toggle" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                
-                <div class="control-divider"></div>
-                
-                <div class="control-group-title"><i class="fa-solid fa-layer-group"></i> Active Datasets</div>
-                <div class="control-row">
-                    <span class="control-label">
-                        <span class="dataset-badge bus">Bus</span> Bus Stations
-                    </span>
-                    <label class="switch">
-                        <input type="checkbox" id="dataset-bus-toggle" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                <div class="control-row">
-                    <span class="control-label">
-                        <span class="dataset-badge metro">Metro</span> LA Metro Rail
-                    </span>
-                    <label class="switch">
-                        <input type="checkbox" id="dataset-metro-toggle" checked>
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-                
-                <div class="action-buttons">
-                    <button id="btn-fit-bounds" class="action-btn">
-                        <i class="fa-solid fa-expand"></i> Fit to Region
-                    </button>
-                    <button id="btn-reset-map" class="action-btn">
-                        <i class="fa-solid fa-arrows-spin"></i> Reset View
-                    </button>
-                </div>
-            </section>
-
-            <section class="stats-panel">
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-total-stations">-</div>
-                    <div class="stat-label">Total Stations</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="stat-active-regions">-</div>
-                    <div class="stat-label">Active Hiding</div>
-                </div>
-            </section>
-
             <section class="circles-panel">
                 <div class="circles-header">
                     <span class="section-title-alt"><i class="fa-solid fa-circle-dot"></i> Circles</span>
@@ -134,6 +70,53 @@
                     </div>
                 </div>
                 <div id="thermometers-list-container"></div>
+            </section>
+
+            <section class="controls-panel">
+                <div class="control-row">
+                    <span class="control-label"><i class="fa-solid fa-eye-slash"></i> Hiding Regions (All)</span>
+                    <label class="switch">
+                        <input type="checkbox" id="global-regions-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">
+                        <span class="dataset-badge bus">Bus</span> Bus Stations
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="dataset-bus-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="control-row">
+                    <span class="control-label">
+                        <span class="dataset-badge metro">Metro</span> LA Metro Rail
+                    </span>
+                    <label class="switch">
+                        <input type="checkbox" id="dataset-metro-toggle" checked>
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <div class="action-buttons">
+                    <button id="btn-fit-bounds" class="action-btn">
+                        <i class="fa-solid fa-expand"></i> Fit to Region
+                    </button>
+                    <button id="btn-reset-map" class="action-btn">
+                        <i class="fa-solid fa-arrows-spin"></i> Reset View
+                    </button>
+                </div>
+            </section>
+
+            <section class="stats-panel">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-total-stations">-</div>
+                    <div class="stat-label">Total Stations</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-active-regions">-</div>
+                    <div class="stat-label">Active Hiding</div>
+                </div>
             </section>
 
             <section class="profiles-panel">

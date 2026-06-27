@@ -8,7 +8,6 @@ const state = {
     thermometers: [],
     editMode: false,
     globalRegionsVisible: true,
-    gameRegionVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
     currentTheme: 'light', // Light themed by default
     selectedStationId: null,
@@ -59,7 +58,6 @@ let pendingThermometerMarker = null;
 const stationSearch = document.getElementById('station-search');
 const clearSearchBtn = document.getElementById('clear-search');
 const globalRegionsToggle = document.getElementById('global-regions-toggle');
-const gameRegionToggle = document.getElementById('game-region-toggle');
 const datasetBusToggle = document.getElementById('dataset-bus-toggle');
 const datasetMetroToggle = document.getElementById('dataset-metro-toggle');
 const btnFitBounds = document.getElementById('btn-fit-bounds');
@@ -69,8 +67,6 @@ const statTotalStations = document.getElementById('stat-total-stations');
 const statActiveRegions = document.getElementById('stat-active-regions');
 const stationsListContainer = document.getElementById('stations-list-container');
 const visibleStationsCount = document.getElementById('visible-stations-count');
-const mobileSidebarToggle = document.getElementById('mobile-sidebar-toggle');
-const sidebar = document.getElementById('sidebar');
 
 // Profile DOM Elements
 const btnCreateProfile = document.getElementById('btn-create-profile');
@@ -182,7 +178,6 @@ function saveCurrentViewState() {
             center: [centerObj.lng, centerObj.lat],
             zoom: map.getZoom(),
             globalRegionsVisible: state.globalRegionsVisible,
-            gameRegionVisible: state.gameRegionVisible,
             activeDatasets: Array.from(state.activeDatasets),
             theme: state.currentTheme
         };
@@ -198,7 +193,6 @@ function restoreLastSessionState() {
         if (saved) {
             const view = JSON.parse(saved);
             state.globalRegionsVisible = typeof view.globalRegionsVisible === 'boolean' ? view.globalRegionsVisible : true;
-            state.gameRegionVisible = typeof view.gameRegionVisible === 'boolean' ? view.gameRegionVisible : true;
 
             const restoredDatasets = Array.isArray(view.activeDatasets)
                 ? view.activeDatasets.filter(dataset => dataset === 'bus' || dataset === 'metro')
@@ -220,7 +214,6 @@ function restoreLastSessionState() {
             
             // Set UI inputs checkboxes values
             globalRegionsToggle.checked = state.globalRegionsVisible;
-            gameRegionToggle.checked = state.gameRegionVisible;
             datasetBusToggle.checked = state.activeDatasets.has('bus');
             datasetMetroToggle.checked = state.activeDatasets.has('metro');
             
@@ -252,7 +245,6 @@ function loadProfiles() {
             center: [-118.287, 34.05],
             zoom: 10.2,
             globalRegionsVisible: true,
-            gameRegionVisible: true,
             activeDatasets: ['bus', 'metro'],
             circles: []
         }];
@@ -391,14 +383,12 @@ function applyProfile(profileId) {
     
     // Restore settings
     state.globalRegionsVisible = profile.globalRegionsVisible;
-    state.gameRegionVisible = profile.gameRegionVisible;
     state.activeDatasets = new Set(profile.activeDatasets);
     state.circles = (profile.circles || []).map(c => ({ ...c }));
     state.thermometers = (profile.thermometers || []).map(t => ({ ...t }));
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
-    gameRegionToggle.checked = state.gameRegionVisible;
     datasetBusToggle.checked = state.activeDatasets.has('bus');
     datasetMetroToggle.checked = state.activeDatasets.has('metro');
     
@@ -406,8 +396,8 @@ function applyProfile(profileId) {
     if (isMapReady) {
         map.setLayoutProperty('hiding-regions-fill', 'visibility', state.globalRegionsVisible ? 'visible' : 'none');
         map.setLayoutProperty('hiding-regions-stroke', 'visibility', state.globalRegionsVisible ? 'visible' : 'none');
-        map.setLayoutProperty('game-region-outside-fill', 'visibility', state.gameRegionVisible ? 'visible' : 'none');
-        map.setLayoutProperty('game-region-border', 'visibility', state.gameRegionVisible ? 'visible' : 'none');
+        map.setLayoutProperty('game-region-outside-fill', 'visibility', 'visible');
+        map.setLayoutProperty('game-region-border', 'visibility', 'visible');
         
         // Force update hiding region sources and map layers
         map.getSource('hiding-regions').setData(generateHidingRegionsGeoJson());
@@ -434,7 +424,6 @@ function createProfile() {
         center: center,
         zoom: zoom,
         globalRegionsVisible: state.globalRegionsVisible,
-        gameRegionVisible: state.gameRegionVisible,
         activeDatasets: Array.from(state.activeDatasets),
         circles: state.circles.map(c => ({ ...c })),
         thermometers: state.thermometers.map(t => ({ ...t }))
@@ -456,7 +445,6 @@ function deleteProfile(profileId) {
             center: [-118.287, 34.05],
             zoom: 10.2,
             globalRegionsVisible: true,
-            gameRegionVisible: true,
             activeDatasets: ['bus', 'metro'],
             circles: []
         }];
@@ -476,7 +464,6 @@ function saveToActiveProfile() {
     profile.center = [c.lng, c.lat];
     profile.zoom = map.getZoom();
     profile.globalRegionsVisible = state.globalRegionsVisible;
-    profile.gameRegionVisible = state.gameRegionVisible;
     profile.activeDatasets = Array.from(state.activeDatasets);
     profile.circles = state.circles.map(c => ({ ...c }));
     profile.thermometers = state.thermometers.map(t => ({ ...t }));
@@ -1007,7 +994,7 @@ function setupMapLayers() {
                 'fill-opacity': 0.35
             },
             layout: {
-                'visibility': state.gameRegionVisible ? 'visible' : 'none'
+                'visibility': 'visible'
             }
         });
     }
@@ -1023,7 +1010,7 @@ function setupMapLayers() {
                 'line-opacity': 0.95
             },
             layout: {
-                'visibility': state.gameRegionVisible ? 'visible' : 'none'
+                'visibility': 'visible'
             }
         });
     }
@@ -1661,16 +1648,7 @@ function setupEventListeners() {
         handleManualUIChange();
     });
 
-    // Game Boundary Toggle
-    gameRegionToggle.addEventListener('change', (e) => {
-        state.gameRegionVisible = e.target.checked;
-        if (isMapReady) {
-            const visibility = state.gameRegionVisible ? 'visible' : 'none';
-            map.setLayoutProperty('game-region-outside-fill', 'visibility', visibility);
-            map.setLayoutProperty('game-region-border', 'visibility', visibility);
-        }
-        handleManualUIChange();
-    });
+
 
     // Dataset Game Toggle
     datasetBusToggle.addEventListener('change', (e) => {
@@ -1805,17 +1783,6 @@ function setupEventListeners() {
     document.getElementById('btn-edit-circles').addEventListener('click', toggleEditMode);
     document.getElementById('btn-edit-thermometers').addEventListener('click', toggleEditMode);
 
-    // Mobile Sidebar Drawer Toggle
-    mobileSidebarToggle.addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-        const icon = mobileSidebarToggle.querySelector('i');
-        if (sidebar.classList.contains('open')) {
-            icon.className = 'fa-solid fa-xmark';
-        } else {
-            icon.className = 'fa-solid fa-bars';
-        }
-    });
-
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
         if (state.editMode) return;
@@ -1844,10 +1811,6 @@ function setupEventListeners() {
             return;
         }
 
-        if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
-            sidebar.classList.remove('open');
-            mobileSidebarToggle.querySelector('i').className = 'fa-solid fa-bars';
-        }
         if (addingCircleMode) {
             addCircleAtPoint(e.lngLat);
             addingCircleMode = false;

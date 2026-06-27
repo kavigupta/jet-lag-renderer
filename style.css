@@ -744,42 +744,49 @@ input:checked + .slider:before {
 
 /* Responsive Rules */
 @media (max-width: 900px) {
+    #app-container {
+        flex-direction: column;
+    }
+
+    #map-container {
+        height: 55vh;
+        flex-shrink: 0;
+    }
+
     #sidebar {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        transform: translateX(-100%);
-        width: 320px;
-        box-shadow: 5px 0 25px rgba(0,0,0,0.5);
+        width: 100%;
+        height: 45vh;
+        border-right: none;
+        border-top: 1px solid var(--border-color);
+        overflow-y: auto;
+        /* disable desktop slide-in transition */
+        transform: none !important;
+        position: static;
     }
-    
-    #sidebar.open {
-        transform: translateX(0);
+
+    /* station list no longer needs to flex-grow inside a fixed sidebar */
+    .station-list {
+        flex-grow: 0;
+        max-height: 240px;
     }
-    
+
     .sidebar-toggle-btn {
-        display: flex;
+        display: none;
     }
-    
-    /* Move popup and controls so they don't overlap with menu icon */
-    .map-overlay-controls {
-        top: 20px;
+
+    .sidebar-header {
+        padding: 12px 16px;
     }
 }
 
 @media (max-width: 480px) {
-    #sidebar {
-        width: 100%;
-    }
-    
     #help-tooltip {
         width: 90%;
         text-align: center;
         justify-content: center;
         font-size: 11px;
     }
-    
+
     .map-overlay-controls {
         right: 10px;
         top: 80px;
