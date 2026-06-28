@@ -135,6 +135,7 @@ const datasetMetroToggle = document.getElementById('dataset-metro-toggle');
 const btnFitBounds = document.getElementById('btn-fit-bounds');
 const btnResetMap = document.getElementById('btn-reset-map');
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const btnLocate = document.getElementById('btn-locate');
 const statTotalStations = document.getElementById('stat-total-stations');
 const statActiveRegions = document.getElementById('stat-active-regions');
 const stationsListContainer = document.getElementById('stations-list-container');
@@ -2843,6 +2844,41 @@ function setupEventListeners() {
         // Reinitialize map style
         map.setStyle(MAP_STYLES[state.currentTheme]);
         saveCurrentViewState(); // Save theme toggle in state
+    });
+
+    // User location
+    let userLocationMarker = null;
+    let userLocationWatchId = null;
+    let userLocationActive = false;
+
+    btnLocate.addEventListener('click', () => {
+        if (userLocationActive) {
+            if (userLocationWatchId !== null) navigator.geolocation.clearWatch(userLocationWatchId);
+            if (userLocationMarker) { userLocationMarker.remove(); userLocationMarker = null; }
+            userLocationWatchId = null;
+            userLocationActive = false;
+            btnLocate.classList.remove('active');
+            return;
+        }
+        if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
+        userLocationActive = true;
+        btnLocate.classList.add('active');
+        userLocationWatchId = navigator.geolocation.watchPosition(pos => {
+            const { longitude, latitude } = pos.coords;
+            if (!userLocationMarker) {
+                const el = document.createElement('div');
+                el.className = 'user-location-marker';
+                userLocationMarker = new maplibregl.Marker({ element: el, anchor: 'center' })
+                    .setLngLat([longitude, latitude])
+                    .addTo(map);
+            } else {
+                userLocationMarker.setLngLat([longitude, latitude]);
+            }
+        }, err => {
+            console.warn('Geolocation error:', err);
+            btnLocate.classList.remove('active');
+            userLocationActive = false;
+        }, { enableHighAccuracy: true, maximumAge: 5000 });
     });
 
     // Circle Add/Edit buttons

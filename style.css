@@ -564,7 +564,7 @@ input:checked + .slider:before {
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border-color);
-    color: #fff;
+    color: var(--text-primary);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -579,6 +579,27 @@ input:checked + .slider:before {
     background: rgba(255, 255, 255, 0.1);
     border-color: var(--accent-cyan);
     color: var(--accent-cyan);
+}
+
+/* User location marker */
+.user-location-marker {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #3b82f6;
+    border: 2.5px solid #fff;
+    box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
+    animation: location-pulse 2s ease-out infinite;
+    position: relative;
+}
+@keyframes location-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(59,130,246,0.5); }
+    70%  { box-shadow: 0 0 0 12px rgba(59,130,246,0); }
+    100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+}
+#btn-locate.active {
+    color: #3b82f6;
+    border-color: #3b82f6;
 }
 
 /* Map Legend */
@@ -1039,26 +1060,30 @@ input:checked + .slider:before {
     flex: 1;
     padding: 3px 0;
     border-radius: 4px;
-    border: 1px solid var(--border-color);
-    background: none;
+    border: 1.5px solid #888;
+    background: #e0e0e0;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    transition: all var(--transition-speed);
-    color: var(--text-muted);
+    color: #222;
 }
 
-.circle-type-btn.hit.active {
-    background: rgba(0, 255, 136, 0.15);
-    border-color: rgba(0, 255, 136, 0.4);
-    color: var(--accent-green);
+.dark-theme .circle-type-btn {
+    border-color: #666;
+    background: #444;
+    color: #eee;
 }
 
-.circle-type-btn.miss.active {
-    background: rgba(255, 68, 68, 0.15);
-    border-color: rgba(255, 68, 68, 0.4);
-    color: var(--accent-red);
+.circle-type-btn.active {
+    border-width: 2px;
+    outline: 2px solid currentColor;
+    outline-offset: 1px;
 }
+
+.circle-type-btn.hit.active { color: #007a3d; }
+.circle-type-btn.miss.active { color: #b91c1c; }
+.dark-theme .circle-type-btn.hit.active { color: #4ade80; }
+.dark-theme .circle-type-btn.miss.active { color: #f87171; }
 
 .circle-delete-btn {
     background: none;
