@@ -87,8 +87,14 @@ body, html {
     flex-direction: column;
     z-index: 10;
     border-right: 1px solid var(--border-color);
-    transition: transform var(--transition-speed) cubic-bezier(0.4, 0, 0.2, 1);
+    transition: width 0.25s ease, transform 0.25s ease;
     flex-shrink: 0;
+}
+
+#sidebar.hidden {
+    width: 0;
+    overflow: hidden;
+    border-right: none;
 }
 
 .sidebar-header {

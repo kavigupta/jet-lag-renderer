@@ -2956,6 +2956,17 @@ function setupEventListeners() {
         }, { enableHighAccuracy: true, maximumAge: 5000 });
     });
 
+    // Fullscreen button — hides sidebar so map fills the window
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+    btnFullscreen.addEventListener('click', () => {
+        const sidebar = document.getElementById('sidebar');
+        const expanded = sidebar.classList.toggle('hidden');
+        const icon = btnFullscreen.querySelector('i');
+        icon.className = expanded ? 'fa-solid fa-compress' : 'fa-solid fa-expand';
+        btnFullscreen.title = expanded ? 'Show Sidebar' : 'Hide Sidebar';
+        map.resize();
+    });
+
     // Circle Add/Edit buttons
     document.getElementById('btn-add-circle').addEventListener('click', () => {
         addingCircleMode = !addingCircleMode;
