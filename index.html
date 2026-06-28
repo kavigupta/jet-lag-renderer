@@ -98,14 +98,46 @@
                         <option value="mountains">Mountains</option>
                         <option value="parks">Parks</option>
                         <option value="amusement-parks">Amusement Parks</option>
-                        <option value="zoos">Zoos &amp; Aquariums</option>
+                        <option value="zoos">Zoos</option>
+                        <option value="aquariums">Aquariums</option>
                         <option value="golf-courses">Golf Courses</option>
                         <option value="museums">Museums</option>
                         <option value="theaters">Theaters</option>
+                        <option value="hospitals">Hospitals</option>
+                        <option value="libraries">Libraries</option>
+                        <option value="consulates">Consulates</option>
                     </select>
                     <button id="btn-add-distance-clue" class="add-profile-btn">+ Add</button>
                 </div>
                 <div id="distance-clues-list-container"></div>
+            </section>
+
+            <section class="circles-panel">
+                <div class="circles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-equals"></i> Matching</span>
+                </div>
+                <div style="padding:4px 0">
+                    <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                        <select id="matching-type-select" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary)">
+                            <option value="airports">Commercial Airport</option>
+                            <option value="mountains">Mountain</option>
+                            <option value="amusement-parks">Amusement Park</option>
+                            <option value="zoos">Zoo</option>
+                            <option value="aquariums">Aquarium</option>
+                            <option value="golf-courses">Golf Course</option>
+                            <option value="museums">Museum</option>
+                            <option value="theaters">Movie Theater</option>
+                            <option value="hospitals">Hospital</option>
+                            <option value="libraries">Library</option>
+                            <option value="consulates">Consulate</option>
+                        </select>
+                        <button id="btn-add-matching-clue" class="add-profile-btn">+ Add</button>
+                    </div>
+                    <select id="matching-feature-select" style="width:100%;font-size:11px;padding:4px 6px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary);box-sizing:border-box">
+                        <option value="">— select a feature —</option>
+                    </select>
+                </div>
+                <div id="matching-clues-list-container"></div>
             </section>
 
             <section class="controls-panel">

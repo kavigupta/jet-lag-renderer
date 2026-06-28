@@ -8,6 +8,7 @@ const state = {
     thermometers: [],
     adminClues: [],
     distanceClues: [],
+    matchingClues: [],
     editMode: false,
     globalRegionsVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
@@ -72,14 +73,36 @@ const DISTANCE_FEATURES = {
     'mountains':      { label: 'Mountains',          icon: 'fa-mountain',     file: 'features/mountains.geojson' },
     'parks':          { label: 'Parks',              icon: 'fa-tree',         file: 'features/parks.geojson' },
     'amusement-parks':{ label: 'Amusement Parks',   icon: 'fa-star',         file: 'features/amusement-parks.geojson' },
-    'zoos':           { label: 'Zoos & Aquariums',  icon: 'fa-paw',          file: 'features/zoos.geojson' },
+    'zoos':           { label: 'Zoos',               icon: 'fa-paw',          file: 'features/zoos.geojson' },
+    'aquariums':      { label: 'Aquariums',          icon: 'fa-fish',         file: 'features/aquariums.geojson' },
     'golf-courses':   { label: 'Golf Courses',       icon: 'fa-golf-ball-tee',file: 'features/golf-courses.geojson' },
     'museums':        { label: 'Museums',            icon: 'fa-building-columns', file: 'features/museums.geojson' },
     'theaters':       { label: 'Theaters',           icon: 'fa-masks-theater',file: 'features/theaters.geojson' },
+    'hospitals':      { label: 'Hospitals',          icon: 'fa-hospital',     file: 'features/hospitals.geojson' },
+    'libraries':      { label: 'Libraries',          icon: 'fa-book',         file: 'features/libraries.geojson' },
+    'consulates':     { label: 'Consulates',         icon: 'fa-flag',         file: 'features/consulates.geojson' },
 };
 const distanceFeatureCache = {}; // key → GeoJSON FeatureCollection
 let nextDistanceClueId = 1;
 let addingDistanceClueMode = false; // false | feature-key string (waiting for ref point click)
+
+// ── Matching clue config ──────────────────────────────────────────────────────
+const MATCHING_FEATURES = {
+    'airports':       { label: 'Commercial Airport', icon: 'fa-plane',             file: 'features/airports.geojson' },
+    'mountains':      { label: 'Mountain',           icon: 'fa-mountain',          file: 'features/mountains.geojson' },
+    'amusement-parks':{ label: 'Amusement Park',    icon: 'fa-star',              file: 'features/amusement-parks.geojson' },
+    'zoos':           { label: 'Zoo',                icon: 'fa-paw',               file: 'features/zoos.geojson' },
+    'aquariums':      { label: 'Aquarium',           icon: 'fa-fish',              file: 'features/aquariums.geojson' },
+    'golf-courses':   { label: 'Golf Course',        icon: 'fa-golf-ball-tee',    file: 'features/golf-courses.geojson' },
+    'museums':        { label: 'Museum',             icon: 'fa-building-columns',  file: 'features/museums.geojson' },
+    'theaters':       { label: 'Movie Theater',      icon: 'fa-masks-theater',    file: 'features/theaters.geojson' },
+    'hospitals':      { label: 'Hospital',           icon: 'fa-hospital',          file: 'features/hospitals.geojson' },
+    'libraries':      { label: 'Library',            icon: 'fa-book',              file: 'features/libraries.geojson' },
+    'consulates':     { label: 'Consulate',          icon: 'fa-flag',              file: 'features/consulates.geojson' },
+};
+const matchingVoronoiCache = {}; // featureType → turf.voronoi FeatureCollection
+const VORONOI_BBOX = [-119.5, 33.0, -116.5, 35.5];
+let nextMatchingClueId = 1;
 
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
@@ -302,6 +325,10 @@ function loadProfiles() {
     if (active.distanceClues?.length > 0) {
         nextDistanceClueId = Math.max(...active.distanceClues.map(c => parseInt(c.id.replace('dc', '')) || 0)) + 1;
     }
+    state.matchingClues = (active.matchingClues || []).map(c => ({ ...c }));
+    if (active.matchingClues?.length > 0) {
+        nextMatchingClueId = Math.max(...active.matchingClues.map(c => parseInt(c.id.replace('mc', '')) || 0)) + 1;
+    }
 }
 
 function saveProfiles() {
@@ -427,6 +454,10 @@ function applyProfile(profileId) {
     state.thermometers = (profile.thermometers || []).map(t => ({ ...t }));
     state.adminClues = (profile.adminClues || []).map(c => ({ ...c }));
     state.distanceClues = (profile.distanceClues || []).map(c => ({ ...c }));
+    state.matchingClues = (profile.matchingClues || []).map(c => ({ ...c }));
+    if (state.matchingClues.length > 0) {
+        nextMatchingClueId = Math.max(...state.matchingClues.map(c => parseInt(c.id.replace('mc', '')) || 0)) + 1;
+    }
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
@@ -447,6 +478,7 @@ function applyProfile(profileId) {
         onThermometersChanged();
         onAdminCluesChanged();
         onDistanceCluesChanged();
+        onMatchingCluesChanged();
     }
 
     renderStationList();
@@ -472,6 +504,7 @@ function createProfile() {
         thermometers: state.thermometers.map(t => ({ ...t })),
         adminClues: state.adminClues.map(c => ({ ...c })),
         distanceClues: state.distanceClues.map(c => ({ ...c })),
+        matchingClues: state.matchingClues.map(c => ({ ...c })),
     };
 
     state.profiles.push(newProfile);
@@ -514,6 +547,7 @@ function saveToActiveProfile() {
     profile.thermometers = state.thermometers.map(t => ({ ...t }));
     profile.adminClues = state.adminClues.map(c => ({ ...c }));
     profile.distanceClues = state.distanceClues.map(c => ({ ...c }));
+    profile.matchingClues = state.matchingClues.map(c => ({ ...c }));
     saveProfiles();
 }
 
@@ -647,6 +681,13 @@ function computeActiveZone() {
             zone = result;
         }
     }
+    for (const clue of state.matchingClues) {
+        const region = matchingClueRegion(clue);
+        if (!region) continue;
+        const result = turf.intersect(zone, region);
+        if (!result) return null;
+        zone = result;
+    }
     return zone;
 }
 
@@ -671,6 +712,31 @@ function distanceClueRegion(clue) {
         console.warn('distanceClueRegion error:', e);
         return null;
     }
+}
+
+// Returns the Voronoi cell (polygon) for a matching clue's named feature.
+function matchingClueRegion(clue) {
+    if (clue._voronoiCell) return clue._voronoiCell;
+    const data = distanceFeatureCache[clue.featureType];
+    if (!data || !data.features.length) return null;
+    if (!matchingVoronoiCache[clue.featureType]) {
+        const points = {
+            type: 'FeatureCollection',
+            features: data.features.filter(f => f.geometry.type === 'Point')
+        };
+        if (points.features.length < 2) return null;
+        try {
+            matchingVoronoiCache[clue.featureType] = turf.voronoi(points, { bbox: VORONOI_BBOX });
+        } catch (e) {
+            console.warn('matchingClueRegion voronoi error:', e);
+            return null;
+        }
+    }
+    const voronoi = matchingVoronoiCache[clue.featureType];
+    const cell = voronoi?.features?.[clue.featureIndex];
+    if (!cell) return null;
+    clue._voronoiCell = cell;
+    return cell;
 }
 
 function cascadeUnion(features) {
@@ -1133,6 +1199,56 @@ function renderDistanceCluesList() {
             const val = parseFloat(distInput.value);
             if (!isNaN(val) && val > 0) updateDistanceClue(clue.id, { thresholdMiles: val });
         });
+        container.appendChild(item);
+    });
+}
+
+// ── Matching clue helpers ─────────────────────────────────────────────────────
+
+function onMatchingCluesChanged() {
+    const activeZone = computeActiveZone();
+    const maskSrc = map.getSource('game-region-outside');
+    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone));
+    updateStats();
+    renderMatchingCluesList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+function addMatchingClue(featureType, featureIndex, featureName) {
+    const id = `mc${nextMatchingClueId++}`;
+    const info = MATCHING_FEATURES[featureType];
+    state.matchingClues.push({ id, featureType, featureIndex, featureName, label: info.label });
+    onMatchingCluesChanged();
+}
+
+function deleteMatchingClue(id) {
+    state.matchingClues = state.matchingClues.filter(c => c.id !== id);
+    onMatchingCluesChanged();
+}
+
+function renderMatchingCluesList() {
+    const container = document.getElementById('matching-clues-list-container');
+    if (!container) return;
+    if (state.matchingClues.length === 0) {
+        container.innerHTML = '<div style="padding:6px 0;font-size:11px;color:var(--text-muted)">No clues yet.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.matchingClues.forEach((clue, idx) => {
+        const info = MATCHING_FEATURES[clue.featureType] || {};
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index" style="font-size:9px;white-space:nowrap">${idx + 1}</span>
+                <span style="flex:1;font-size:11px;padding:0 5px;min-width:0">
+                    <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${clue.featureName}</span>
+                    <span style="font-size:10px;color:var(--text-muted)">${info.label || clue.featureType}</span>
+                </span>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteMatchingClue(clue.id));
         container.appendChild(item);
     });
 }
@@ -1645,6 +1761,7 @@ function setupMapLayers() {
 
     renderAdminCluesList();
     renderDistanceCluesList();
+    renderMatchingCluesList();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -1905,7 +2022,7 @@ function updateStats() {
     statTotalStations.textContent = activeStations.length;
 
     let activeHidingCount;
-    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0 || state.distanceClues.length > 0) {
+    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0 || state.distanceClues.length > 0 || state.matchingClues.length > 0) {
         const activeZone = computeActiveZone();
         activeHidingCount = activeZone
             ? activeStations.filter(s => turf.booleanPointInPolygon(
@@ -2016,7 +2133,7 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
-        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0 && state.distanceClues.length === 0) ? `
+        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0 && state.distanceClues.length === 0 && state.matchingClues.length === 0) ? `
                 <label class="switch">
                     <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -2269,6 +2386,50 @@ function setupEventListeners() {
             // Pre-load the feature data
             loadDistanceFeature(key);
         }
+    });
+
+    // Matching clue — populate feature dropdown when type changes
+    const matchingTypeSel = document.getElementById('matching-type-select');
+    const matchingFeatSel = document.getElementById('matching-feature-select');
+    const populateMatchingFeatures = async (typeKey) => {
+        matchingFeatSel.innerHTML = '<option value="">Loading…</option>';
+        matchingFeatSel.disabled = true;
+        let data = distanceFeatureCache[typeKey];
+        if (!data) {
+            const info = MATCHING_FEATURES[typeKey];
+            if (!info) return;
+            try {
+                const r = await fetch(info.file);
+                if (!r.ok) throw new Error('fetch failed');
+                data = await r.json();
+                distanceFeatureCache[typeKey] = data;
+            } catch {
+                matchingFeatSel.innerHTML = '<option value="">Failed to load</option>';
+                return;
+            }
+        }
+        matchingFeatSel.disabled = false;
+        matchingFeatSel.innerHTML = '<option value="">— select a feature —</option>';
+        data.features
+            .map((f, i) => ({ i, name: f.properties?.name || f.properties?.Name || `Feature ${i + 1}` }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach(({ i, name }) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = name;
+                matchingFeatSel.appendChild(opt);
+            });
+    };
+    matchingTypeSel.addEventListener('change', () => populateMatchingFeatures(matchingTypeSel.value));
+    populateMatchingFeatures(matchingTypeSel.value); // load initial type on startup
+
+    document.getElementById('btn-add-matching-clue').addEventListener('click', () => {
+        const typeKey = matchingTypeSel.value;
+        const idx = parseInt(matchingFeatSel.value);
+        if (!typeKey || isNaN(idx)) return;
+        const name = matchingFeatSel.options[matchingFeatSel.selectedIndex].textContent;
+        addMatchingClue(typeKey, idx, name);
+        matchingFeatSel.value = '';
     });
 
     // Close mobile sidebar when clicking on map
