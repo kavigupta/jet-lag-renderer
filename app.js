@@ -1178,9 +1178,10 @@ function buildThermometersGeoJson() {
         const len = Math.sqrt(dx * dx + dy * dy);
 
         // Chord between the two points
+        const distMiles = turf.distance(turf.point(t.point1), turf.point(t.point2), { units: 'miles' });
         features.push({
             type: 'Feature',
-            properties: { id: t.id, featureType: 'chord', thermoType: t.type },
+            properties: { id: t.id, featureType: 'chord', thermoType: t.type, distLabel: distMiles.toFixed(2) + ' mi' },
             geometry: { type: 'LineString', coordinates: [t.point1, t.point2] }
         });
 
@@ -1417,7 +1418,7 @@ const GAME_LAYERS_TO_HIDE_WHILE_PICKING = [
     'game-region-outside-fill', 'game-region-border',
     'hiding-regions-fill', 'hiding-regions-stroke',
     'stations-circle', 'stations-label',
-    'circles-stroke', 'thermometer-chords', 'thermometer-bisectors',
+    'circles-stroke', 'thermometer-chords', 'thermometer-bisectors', 'thermometer-labels',
 ];
 
 function enterAdminPickingMode(level) {
@@ -2098,6 +2099,28 @@ function setupMapLayers() {
                 'line-width': 1.5,
                 'line-opacity': 0.6,
                 'line-dasharray': [6, 4]
+            }
+        });
+    }
+    if (!map.getLayer('thermometer-labels')) {
+        map.addLayer({
+            id: 'thermometer-labels',
+            type: 'symbol',
+            source: 'thermometers',
+            filter: ['==', ['get', 'featureType'], 'chord'],
+            layout: {
+                'symbol-placement': 'line-center',
+                'text-field': ['get', 'distLabel'],
+                'text-size': 11,
+                'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+                'text-offset': [0, -0.8],
+                'text-allow-overlap': true,
+                'text-ignore-placement': true,
+            },
+            paint: {
+                'text-color': ['match', ['get', 'thermoType'], 'hotter', '#ef4444', '#3b82f6'],
+                'text-halo-color': state.currentTheme === 'dark' ? '#0f172a' : '#ffffff',
+                'text-halo-width': 2,
             }
         });
     }
