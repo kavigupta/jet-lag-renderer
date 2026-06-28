@@ -2407,12 +2407,20 @@ function fitMapToBounds() {
     if (!state.gameRegion) return;
     try {
         const bounds = turf.bbox(state.gameRegion);
-        map.fitBounds(bounds, {
-            padding: 40,
-            duration: 1200
-        });
+        map.fitBounds(bounds, { padding: 40, duration: 1200 });
     } catch (err) {
         console.error('Error fitting bounds:', err);
+    }
+}
+
+function fitToActiveZone() {
+    try {
+        const zone = computeActiveZone();
+        const target = zone || state.gameRegion;
+        const bounds = turf.bbox(target);
+        map.fitBounds(bounds, { padding: 60, duration: 1200, maxZoom: 16 });
+    } catch (err) {
+        fitMapToBounds();
     }
 }
 
@@ -2907,8 +2915,8 @@ function setupEventListeners() {
         localStorage.removeItem('jet-lag-last-view');
         state.hasRestoredView = false;
 
-        // Fit Bounds
-        fitMapToBounds();
+        // Fit to active zone if constrained, otherwise full game region
+        fitToActiveZone();
         handleManualUIChange();
     });
 
