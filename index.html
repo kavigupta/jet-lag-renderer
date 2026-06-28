@@ -144,6 +144,19 @@
 
             <section class="circles-panel">
                 <div class="circles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-circle-check"></i> Found Station</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;padding:4px 0">
+                    <select id="found-station-select" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary)">
+                        <option value="">— select a station —</option>
+                    </select>
+                    <button id="btn-add-found-station" class="add-profile-btn">+ Add</button>
+                </div>
+                <div id="found-stations-list-container"></div>
+            </section>
+
+            <section class="circles-panel">
+                <div class="circles-header">
                     <span class="section-title-alt"><i class="fa-solid fa-location-crosshairs"></i> Tentacles</span>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;padding:4px 0">

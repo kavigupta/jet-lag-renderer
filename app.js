@@ -10,6 +10,7 @@ const state = {
     distanceClues: [],
     matchingClues: [],
     tentacleClues: [],
+    foundStations: [],
     editMode: false,
     globalRegionsVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
@@ -114,6 +115,7 @@ const TENTACLE_FEATURES = {
     'hospitals': { label: 'Hospital',      icon: 'fa-hospital',         file: 'features/hospitals.geojson' },
 };
 let nextTentacleClueId = 1;
+let nextFoundStationId = 1;
 let addingTentacleMode = false; // featureType → turf.voronoi FeatureCollection (or regionByLine map for rail-lines)
 const VORONOI_BBOX = [-119.5, 33.0, -116.5, 35.5];
 let nextMatchingClueId = 1;
@@ -229,6 +231,7 @@ async function init() {
         // Initialize UI lists
         renderStationList();
         renderProfilesList();
+        renderFoundStationSelect();
         setupEventListeners();
 
         // Mark data as loaded and try setting up map layers
@@ -356,6 +359,10 @@ function loadProfiles() {
     state.tentacleClues = (active.tentacleClues || []).map(c => ({ ...c }));
     if (active.tentacleClues?.length > 0) {
         nextTentacleClueId = Math.max(...active.tentacleClues.map(c => parseInt(c.id.replace('tc', '')) || 0)) + 1;
+    }
+    state.foundStations = (active.foundStations || []).map(s => ({ ...s }));
+    if (active.foundStations?.length > 0) {
+        nextFoundStationId = Math.max(...active.foundStations.map(s => parseInt(s.id.replace('found', '')) || 0)) + 1;
     }
 }
 
@@ -490,6 +497,10 @@ function applyProfile(profileId) {
     if (state.tentacleClues.length > 0) {
         nextTentacleClueId = Math.max(...state.tentacleClues.map(c => parseInt(c.id.replace('tc', '')) || 0)) + 1;
     }
+    state.foundStations = (profile.foundStations || []).map(s => ({ ...s }));
+    if (state.foundStations.length > 0) {
+        nextFoundStationId = Math.max(...state.foundStations.map(s => parseInt(s.id.replace('found', '')) || 0)) + 1;
+    }
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
@@ -512,6 +523,7 @@ function applyProfile(profileId) {
         onDistanceCluesChanged();
         onMatchingCluesChanged();
         onTentacleCluesChanged();
+        onFoundStationsChanged();
     }
 
     renderStationList();
@@ -539,6 +551,7 @@ function createProfile() {
         distanceClues: state.distanceClues.map(c => ({ ...c })),
         matchingClues: state.matchingClues.map(c => ({ ...c })),
         tentacleClues: state.tentacleClues.map(c => ({ ...c })),
+        foundStations: state.foundStations.map(s => ({ ...s })),
     };
 
     state.profiles.push(newProfile);
@@ -583,6 +596,7 @@ function saveToActiveProfile() {
     profile.distanceClues = state.distanceClues.map(c => ({ ...c }));
     profile.matchingClues = state.matchingClues.map(c => ({ ...c }));
     profile.tentacleClues = state.tentacleClues.map(c => ({ ...c }));
+    profile.foundStations = state.foundStations.map(s => ({ ...s }));
     saveProfiles();
 }
 
@@ -595,9 +609,10 @@ function handleManualUIChange() {
 function generateHidingRegionsGeoJson() {
     const features = [];
     
+    const foundStationIds = new Set(state.foundStations.map(s => s.stationId));
     state.stations.forEach(station => {
-        // Only generate buffer if the station's dataset is active AND its hiding region is enabled
-        if (state.activeDatasets.has(station.properties.dataset) && state.enabledHidingRegions.has(station.id)) {
+        // Only generate buffer if the station's dataset is active AND its hiding region is enabled AND it hasn't been found
+        if (state.activeDatasets.has(station.properties.dataset) && state.enabledHidingRegions.has(station.id) && !foundStationIds.has(station.id)) {
             const coords = station.geometry.coordinates.slice(0, 2);
             try {
                 // Turf circle creates a perfect 0.25 mile radius polygon
@@ -736,6 +751,15 @@ function computeActiveZone() {
             zone = result;
         }
     }
+    for (const fs of state.foundStations) {
+        const station = state.stations.find(s => s.id === fs.stationId);
+        if (!station) continue;
+        const coords = station.geometry.coordinates.slice(0, 2);
+        const circ = turf.circle(coords, 0.25, { units: 'miles', steps: 64 });
+        const result = turf.intersect(zone, circ);
+        if (!result) return null;
+        zone = result;
+    }
     return zone;
 }
 
@@ -831,6 +855,63 @@ function onTentacleCluesChanged() {
     renderTentacleCluesList();
     renderStationList();
     saveToActiveProfile();
+}
+
+// ── Found Station helpers ─────────────────────────────────────────────────────
+
+function onFoundStationsChanged() {
+    if (!isMapReady) return;
+    map.getSource('hiding-regions')?.setData(generateHidingRegionsGeoJson());
+    const activeZone = computeActiveZone();
+    map.getSource('game-region-outside')?.setData(buildOutsideMask(activeZone));
+    updateStats();
+    renderFoundStationsList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+function deleteFoundStation(id) {
+    state.foundStations = state.foundStations.filter(s => s.id !== id);
+    onFoundStationsChanged();
+}
+
+function renderFoundStationsList() {
+    const container = document.getElementById('found-stations-list-container');
+    if (!container) return;
+    if (state.foundStations.length === 0) {
+        container.innerHTML = '<div style="padding:6px 0;font-size:11px;color:var(--text-muted)">No found stations yet.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.foundStations.forEach((fs, idx) => {
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index" style="font-size:9px;white-space:nowrap">${idx + 1}</span>
+                <span style="flex:1;font-size:11px;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fs.name}</span>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteFoundStation(fs.id));
+        container.appendChild(item);
+    });
+}
+
+function renderFoundStationSelect() {
+    const sel = document.getElementById('found-station-select');
+    if (!sel) return;
+    const prev = sel.value;
+    sel.innerHTML = '<option value="">— select a station —</option>';
+    state.stations
+        .filter(s => state.activeDatasets.has(s.properties.dataset))
+        .sort((a, b) => a.properties.Name.localeCompare(b.properties.Name))
+        .forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = s.properties.Name;
+            sel.appendChild(opt);
+        });
+    if (prev) sel.value = prev;
 }
 
 function deleteTentacleClue(id) {
@@ -2289,6 +2370,8 @@ function setupMapLayers() {
     renderDistanceCluesList();
     renderMatchingCluesList();
     renderTentacleCluesList();
+    renderFoundStationsList();
+    renderFoundStationSelect();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -2753,7 +2836,8 @@ function setupEventListeners() {
             state.activeDatasets.delete('bus');
         }
         renderStationList();
-        
+        renderFoundStationSelect();
+
         // Also update hiding regions to reflect dataset changes
         if (isMapReady && map.getSource('hiding-regions')) {
             map.getSource('hiding-regions').setData(generateHidingRegionsGeoJson());
@@ -2770,7 +2854,8 @@ function setupEventListeners() {
             state.activeDatasets.delete('metro');
         }
         renderStationList();
-        
+        renderFoundStationSelect();
+
         // Also update hiding regions to reflect dataset changes
         if (isMapReady && map.getSource('hiding-regions')) {
             map.getSource('hiding-regions').setData(generateHidingRegionsGeoJson());
@@ -3010,6 +3095,19 @@ function setupEventListeners() {
             document.getElementById('tentacle-feature-picker').style.display = 'none';
             showTentacleGlobalPreview(featureType);
         }
+    });
+
+    document.getElementById('btn-add-found-station').addEventListener('click', () => {
+        const sel = document.getElementById('found-station-select');
+        const stationId = parseInt(sel.value);
+        if (!stationId) return;
+        if (state.foundStations.some(s => s.stationId === stationId)) return;
+        const station = state.stations.find(s => s.id === stationId);
+        if (!station) return;
+        const id = `found${nextFoundStationId++}`;
+        state.foundStations.push({ id, stationId, name: station.properties.Name });
+        sel.value = '';
+        onFoundStationsChanged();
     });
 
     document.getElementById('btn-matching-view').addEventListener('click', () => {
