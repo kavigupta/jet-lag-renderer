@@ -61,6 +61,7 @@ let admin1Data = null;
 let admin2Data = null;
 let nextAdminClueId = 1;
 let addingAdminClueLevel = 0; // 0 = off, 1 or 2 = picking
+let matchingViewMode = false;
 
 // Distance clue state
 const DISTANCE_FEATURES = {
@@ -1132,6 +1133,7 @@ const GAME_LAYERS_TO_HIDE_WHILE_PICKING = [
 ];
 
 function enterAdminPickingMode(level) {
+    if (matchingViewMode) exitMatchingViewMode();
     GAME_LAYERS_TO_HIDE_WHILE_PICKING.forEach(id => {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
     });
@@ -1154,6 +1156,83 @@ function exitAdminPickingMode() {
     ['hiding-regions-fill', 'hiding-regions-stroke'].forEach(id => {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', hideRegions);
     });
+}
+
+async function enterMatchingViewMode(featureType) {
+    // Load data (reuse cache)
+    let data = distanceFeatureCache[featureType];
+    if (!data) {
+        const info = MATCHING_FEATURES[featureType];
+        if (!info) return;
+        try {
+            const r = await fetch(info.file);
+            if (!r.ok) return;
+            data = await r.json();
+            distanceFeatureCache[featureType] = data;
+        } catch { return; }
+    }
+
+    // Build labeled Voronoi FeatureCollection
+    let voronoiFC;
+    if (featureType === 'rail-lines') {
+        if (!matchingVoronoiCache['rail-lines'])
+            matchingVoronoiCache['rail-lines'] = buildRailLineVoronoi(data);
+        const regionByLine = matchingVoronoiCache['rail-lines'];
+        voronoiFC = {
+            type: 'FeatureCollection',
+            features: data.features.map((feat, i) => {
+                const lineId = feat.properties.line;
+                const region = regionByLine[lineId];
+                if (!region) return null;
+                return { ...region, properties: { name: feat.properties.name, index: i } };
+            }).filter(Boolean)
+        };
+    } else {
+        const pointFeatures = data.features.filter(f => f.geometry.type === 'Point');
+        if (pointFeatures.length < 2) return;
+        let voronoi = matchingVoronoiCache[featureType];
+        if (!voronoi) {
+            try {
+                voronoi = turf.voronoi({ type: 'FeatureCollection', features: pointFeatures }, { bbox: VORONOI_BBOX });
+                matchingVoronoiCache[featureType] = voronoi;
+            } catch { return; }
+        }
+        voronoiFC = {
+            type: 'FeatureCollection',
+            features: voronoi.features.map((cell, i) => {
+                if (!cell) return null;
+                const name = pointFeatures[i]?.properties?.name || pointFeatures[i]?.properties?.Name || `Feature ${i + 1}`;
+                return { ...cell, properties: { name, index: i } };
+            }).filter(Boolean)
+        };
+    }
+
+    map.getSource('matching-voronoi')?.setData(voronoiFC);
+    GAME_LAYERS_TO_HIDE_WHILE_PICKING.forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+    ['matching-voronoi-fill', 'matching-voronoi-stroke', 'matching-voronoi-labels'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+    matchingViewMode = true;
+    const btn = document.getElementById('btn-matching-view');
+    if (btn) { btn.classList.add('active'); btn.textContent = 'Close'; }
+}
+
+function exitMatchingViewMode() {
+    ['matching-voronoi-fill', 'matching-voronoi-stroke', 'matching-voronoi-labels'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+    GAME_LAYERS_TO_HIDE_WHILE_PICKING.forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+    const hideRegions = state.globalRegionsVisible ? 'visible' : 'none';
+    ['hiding-regions-fill', 'hiding-regions-stroke'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', hideRegions);
+    });
+    matchingViewMode = false;
+    const btn = document.getElementById('btn-matching-view');
+    if (btn) { btn.classList.remove('active'); btn.textContent = 'View'; }
 }
 
 function renderAdminCluesList() {
@@ -1830,6 +1909,49 @@ function setupMapLayers() {
         }
     });
 
+    // Matching Voronoi view layers (hidden until View button is pressed)
+    if (!map.getSource('matching-voronoi')) {
+        map.addSource('matching-voronoi', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getLayer('matching-voronoi-fill')) {
+        map.addLayer({
+            id: 'matching-voronoi-fill',
+            type: 'fill',
+            source: 'matching-voronoi',
+            layout: { visibility: 'none' },
+            paint: { 'fill-color': '#3b82f6', 'fill-opacity': 0.12 }
+        });
+    }
+    if (!map.getLayer('matching-voronoi-stroke')) {
+        map.addLayer({
+            id: 'matching-voronoi-stroke',
+            type: 'line',
+            source: 'matching-voronoi',
+            layout: { visibility: 'none' },
+            paint: { 'line-color': '#1d4ed8', 'line-width': 1.5, 'line-opacity': 0.7 }
+        });
+    }
+    if (!map.getLayer('matching-voronoi-labels')) {
+        map.addLayer({
+            id: 'matching-voronoi-labels',
+            type: 'symbol',
+            source: 'matching-voronoi',
+            layout: {
+                visibility: 'none',
+                'text-field': ['get', 'name'],
+                'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+                'text-size': 11,
+                'text-max-width': 8,
+                'text-allow-overlap': false,
+            },
+            paint: {
+                'text-color': '#0f172a',
+                'text-halo-color': '#ffffff',
+                'text-halo-width': 2
+            }
+        });
+    }
+
     renderAdminCluesList();
     renderDistanceCluesList();
     renderMatchingCluesList();
@@ -2491,8 +2613,20 @@ function setupEventListeners() {
                 matchingFeatSel.appendChild(opt);
             });
     };
-    matchingTypeSel.addEventListener('change', () => populateMatchingFeatures(matchingTypeSel.value));
+    matchingTypeSel.addEventListener('change', () => {
+        populateMatchingFeatures(matchingTypeSel.value);
+        if (matchingViewMode) enterMatchingViewMode(matchingTypeSel.value);
+    });
     populateMatchingFeatures(matchingTypeSel.value); // load initial type on startup
+
+    document.getElementById('btn-matching-view').addEventListener('click', () => {
+        if (matchingViewMode) {
+            exitMatchingViewMode();
+        } else {
+            if (addingAdminClueLevel > 0) { exitAdminPickingMode(); addingAdminClueLevel = 0; }
+            enterMatchingViewMode(matchingTypeSel.value);
+        }
+    });
 
     document.getElementById('btn-add-matching-clue').addEventListener('click', () => {
         const typeKey = matchingTypeSel.value;
