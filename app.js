@@ -1416,7 +1416,7 @@ function updateAdminClue(id, changes) {
 const GAME_LAYERS_TO_HIDE_WHILE_PICKING = [
     'game-region-outside-fill', 'game-region-border',
     'hiding-regions-fill', 'hiding-regions-stroke',
-    'stations-circle', 'stations-number', 'stations-label',
+    'stations-circle', 'stations-label',
     'circles-stroke', 'thermometer-chords', 'thermometer-bisectors',
 ];
 
@@ -1726,8 +1726,7 @@ function applyEditModeVisuals(active) {
     const layers = [
         ['stations-circle',       'circle-opacity',        dim ?? 1],
         ['stations-circle',       'circle-stroke-opacity', dim ?? 1],
-        ['stations-number',       'text-opacity',          dim ?? 1],
-        ['hiding-regions-fill',   'fill-opacity',          active ? 0.04 : 0.15],
+        ['hiding-regions-fill',   'fill-opacity',          active ? 0.03 : 0.12],
         ['hiding-regions-stroke', 'line-opacity',          dim ?? 0.4],
         ['game-region-border',    'line-opacity',          dim ?? 0.95],
     ];
@@ -1956,8 +1955,8 @@ function setupMapLayers() {
             type: 'fill',
             source: 'hiding-regions',
             paint: {
-                'fill-color': '#ff7b00',
-                'fill-opacity': 0.16
+                'fill-color': ['match', ['get', 'dataset'], 'metro', '#8706d1', '#da30e3'],
+                'fill-opacity': 0.12
             },
             layout: {
                 'visibility': state.globalRegionsVisible ? 'visible' : 'none'
@@ -1971,9 +1970,9 @@ function setupMapLayers() {
             type: 'line',
             source: 'hiding-regions',
             paint: {
-                'line-color': '#ff7b00',
-                'line-width': 1.5,
-                'line-opacity': 0.6,
+                'line-color': ['match', ['get', 'dataset'], 'metro', '#8706d1', '#da30e3'],
+                'line-width': 1,
+                'line-opacity': 0.4,
                 'line-dasharray': [2, 1]
             },
             layout: {
@@ -1982,15 +1981,15 @@ function setupMapLayers() {
         });
     }
 
-    // 4. Add Station Layers - styled in light blue (glow & circles)
+    // 4. Add Station Layers
     if (!map.getLayer('stations-glow')) {
         map.addLayer({
             id: 'stations-glow',
             type: 'circle',
             source: 'stations',
             paint: {
-                'circle-color': '#38bdf8', // Light blue glow
-                'circle-radius': 18,
+                'circle-color': ['match', ['get', 'dataset'], 'metro', '#8706d1', '#da30e3'],
+                'circle-radius': 6,
                 'circle-opacity': [
                     'case',
                     ['boolean', ['feature-state', 'hover'], false], 0.35,
@@ -2008,45 +2007,17 @@ function setupMapLayers() {
             type: 'circle',
             source: 'stations',
             paint: {
-                'circle-color': [
-                    'case',
-                    ['boolean', ['feature-state', 'selected'], false], '#000000', // Selected highlights as black
-                    '#38bdf8' // Stations are all the same light blue color
-                ],
+                'circle-color': ['match', ['get', 'dataset'], 'metro', '#8706d1', '#da30e3'],
                 'circle-radius': [
                     'case',
-                    ['boolean', ['feature-state', 'selected'], false], 12,
-                    ['boolean', ['feature-state', 'hover'], false], 11,
-                    9.5
+                    ['boolean', ['feature-state', 'selected'], false], 5,
+                    ['boolean', ['feature-state', 'hover'], false], 4,
+                    3
                 ],
-                'circle-stroke-width': 2.5,
+                'circle-stroke-width': 1,
                 'circle-stroke-color': '#ffffff',
-                'circle-stroke-opacity': 1,
+                'circle-stroke-opacity': 0.8,
                 'circle-opacity': 1
-            }
-        });
-    }
-
-    // Number Layer (renders ID text inside the circle)
-    if (!map.getLayer('stations-number')) {
-        map.addLayer({
-            id: 'stations-number',
-            type: 'symbol',
-            source: 'stations',
-            layout: {
-                'text-field': ['to-string', ['get', 'id']],
-                'text-size': 13.5,
-                'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
-                'text-offset': [0, -1.55],
-                'text-anchor': 'bottom',
-                'text-allow-overlap': true,
-                'text-ignore-placement': true
-            },
-            paint: {
-                'text-color': state.currentTheme === 'dark' ? '#ffffff' : '#0f172a',
-                'text-halo-color': state.currentTheme === 'dark' ? '#0f172a' : '#ffffff',
-                'text-halo-width': 2,
-                'text-halo-blur': 0.2
             }
         });
     }
@@ -2061,7 +2032,7 @@ function setupMapLayers() {
                 'text-field': ['get', 'Name'],
                 'text-size': 9.5,
                 'text-font': ['Noto Sans Regular', 'Arial Unicode MS Regular'],
-                'text-offset': [0, 1.5],
+                'text-offset': [0, 0.6],
                 'text-anchor': 'top',
                 'text-max-width': 8,
                 'text-padding': 2,
@@ -2351,7 +2322,7 @@ function setupMapEvents() {
         });
     });
 
-    const interactiveLayers = ['stations-circle', 'stations-number'];
+    const interactiveLayers = ['stations-circle'];
     
     interactiveLayers.forEach(layerId => {
         // Hover event for stations
@@ -2399,7 +2370,6 @@ function setupMapEvents() {
 
     // Handle mouseleave events
     map.on('mouseleave', 'stations-circle', handleMouseLeave);
-    map.on('mouseleave', 'stations-number', handleMouseLeave);
 }
 
 function handleMouseLeave() {

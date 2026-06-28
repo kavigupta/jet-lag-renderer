@@ -282,8 +282,8 @@ input:checked + .slider {
 }
 
 #global-regions-toggle:checked + .slider {
-    background-color: rgba(255, 123, 0, 0.15);
-    border-color: var(--accent-orange);
+    background-color: rgba(135, 6, 209, 0.15);
+    border-color: #8706d1;
 }
 
 input:checked + .slider:before {
@@ -292,7 +292,7 @@ input:checked + .slider:before {
 }
 
 #global-regions-toggle:checked + .slider:before {
-    background-color: var(--accent-orange);
+    background-color: #8706d1;
 }
 
 .slider.round {
@@ -847,15 +847,15 @@ input:checked + .slider:before {
 }
 
 .dataset-badge.bus {
-    background: rgba(0, 255, 136, 0.1);
-    border: 1px solid rgba(0, 255, 136, 0.2);
-    color: var(--accent-green);
+    background: rgba(218, 48, 227, 0.12);
+    border: 1px solid rgba(218, 48, 227, 0.3);
+    color: #da30e3;
 }
 
 .dataset-badge.metro {
-    background: rgba(0, 243, 255, 0.1);
-    border: 1px solid rgba(0, 243, 255, 0.2);
-    color: var(--accent-cyan);
+    background: rgba(135, 6, 209, 0.12);
+    border: 1px solid rgba(135, 6, 209, 0.3);
+    color: #8706d1;
 }
 
 /* Profiles Section Styling */
