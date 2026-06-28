@@ -2860,9 +2860,9 @@ function setupEventListeners() {
         createProfile();
     });
 
-    // Fit Boundary Button
+    // Fit Boundary Button — zooms to the current active zone
     btnFitBounds.addEventListener('click', () => {
-        fitMapToBounds();
+        fitToActiveZone();
         handleManualUIChange();
     });
 
@@ -2898,8 +2898,8 @@ function setupEventListeners() {
         localStorage.removeItem('jet-lag-last-view');
         state.hasRestoredView = false;
 
-        // Fit to active zone if constrained, otherwise full game region
-        fitToActiveZone();
+        // Reset to full game region
+        fitMapToBounds();
         handleManualUIChange();
     });
 
