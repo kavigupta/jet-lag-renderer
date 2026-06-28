@@ -142,6 +142,26 @@
                 <div id="matching-clues-list-container"></div>
             </section>
 
+            <section class="circles-panel">
+                <div class="circles-header">
+                    <span class="section-title-alt"><i class="fa-solid fa-location-crosshairs"></i> Tentacles</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;padding:4px 0">
+                    <select id="tentacle-type-select" style="flex:1;font-size:11px;padding:4px 6px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary)">
+                        <option value="museums">Museum</option>
+                        <option value="libraries">Library</option>
+                        <option value="theaters">Movie Theater</option>
+                        <option value="hospitals">Hospital</option>
+                    </select>
+                    <input type="number" id="tentacle-radius" value="1" min="0.1" step="0.1"
+                        style="width:44px;font-size:11px;padding:4px 5px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-secondary);color:var(--text-primary)">
+                    <span style="font-size:11px;color:var(--text-muted)">mi</span>
+                    <button id="btn-add-tentacle" class="add-profile-btn">+ Add</button>
+                </div>
+                <div id="tentacle-feature-picker" style="display:none;max-height:160px;overflow-y:auto;border:1px solid var(--border-color);border-radius:6px;margin-bottom:4px;background:var(--bg-primary)"></div>
+                <div id="tentacle-clues-list-container"></div>
+            </section>
+
             <section class="controls-panel">
                 <div class="control-row">
                     <span class="control-label"><i class="fa-solid fa-eye-slash"></i> Hiding Regions (All)</span>

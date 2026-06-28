@@ -9,6 +9,7 @@ const state = {
     adminClues: [],
     distanceClues: [],
     matchingClues: [],
+    tentacleClues: [],
     editMode: false,
     globalRegionsVisible: true,
     activeDatasets: new Set(['bus', 'metro']), // 'bus' and 'metro'
@@ -102,7 +103,17 @@ const MATCHING_FEATURES = {
     'libraries':      { label: 'Library',            icon: 'fa-book',              file: 'features/libraries.geojson' },
     'consulates':     { label: 'Consulate',          icon: 'fa-flag',              file: 'features/consulates.geojson' },
 };
-const matchingVoronoiCache = {}; // featureType → turf.voronoi FeatureCollection (or regionByLine map for rail-lines)
+const matchingVoronoiCache = {};
+
+// ── Tentacle clue config ──────────────────────────────────────────────────────
+const TENTACLE_FEATURES = {
+    'museums':   { label: 'Museum',        icon: 'fa-building-columns', file: 'features/museums.geojson' },
+    'libraries': { label: 'Library',       icon: 'fa-book',             file: 'features/libraries.geojson' },
+    'theaters':  { label: 'Movie Theater', icon: 'fa-masks-theater',    file: 'features/theaters.geojson' },
+    'hospitals': { label: 'Hospital',      icon: 'fa-hospital',         file: 'features/hospitals.geojson' },
+};
+let nextTentacleClueId = 1;
+let addingTentacleMode = false; // featureType → turf.voronoi FeatureCollection (or regionByLine map for rail-lines)
 const VORONOI_BBOX = [-119.5, 33.0, -116.5, 35.5];
 let nextMatchingClueId = 1;
 
@@ -340,6 +351,10 @@ function loadProfiles() {
     if (active.matchingClues?.length > 0) {
         nextMatchingClueId = Math.max(...active.matchingClues.map(c => parseInt(c.id.replace('mc', '')) || 0)) + 1;
     }
+    state.tentacleClues = (active.tentacleClues || []).map(c => ({ ...c }));
+    if (active.tentacleClues?.length > 0) {
+        nextTentacleClueId = Math.max(...active.tentacleClues.map(c => parseInt(c.id.replace('tc', '')) || 0)) + 1;
+    }
 }
 
 function saveProfiles() {
@@ -469,6 +484,10 @@ function applyProfile(profileId) {
     if (state.matchingClues.length > 0) {
         nextMatchingClueId = Math.max(...state.matchingClues.map(c => parseInt(c.id.replace('mc', '')) || 0)) + 1;
     }
+    state.tentacleClues = (profile.tentacleClues || []).map(c => ({ ...c }));
+    if (state.tentacleClues.length > 0) {
+        nextTentacleClueId = Math.max(...state.tentacleClues.map(c => parseInt(c.id.replace('tc', '')) || 0)) + 1;
+    }
 
     // Update inputs check state
     globalRegionsToggle.checked = state.globalRegionsVisible;
@@ -490,6 +509,7 @@ function applyProfile(profileId) {
         onAdminCluesChanged();
         onDistanceCluesChanged();
         onMatchingCluesChanged();
+        onTentacleCluesChanged();
     }
 
     renderStationList();
@@ -516,6 +536,7 @@ function createProfile() {
         adminClues: state.adminClues.map(c => ({ ...c })),
         distanceClues: state.distanceClues.map(c => ({ ...c })),
         matchingClues: state.matchingClues.map(c => ({ ...c })),
+        tentacleClues: state.tentacleClues.map(c => ({ ...c })),
     };
 
     state.profiles.push(newProfile);
@@ -559,6 +580,7 @@ function saveToActiveProfile() {
     profile.adminClues = state.adminClues.map(c => ({ ...c }));
     profile.distanceClues = state.distanceClues.map(c => ({ ...c }));
     profile.matchingClues = state.matchingClues.map(c => ({ ...c }));
+    profile.tentacleClues = state.tentacleClues.map(c => ({ ...c }));
     saveProfiles();
 }
 
@@ -699,6 +721,19 @@ function computeActiveZone() {
         if (!result) return null;
         zone = result;
     }
+    for (const clue of state.tentacleClues) {
+        const region = tentacleClueRegion(clue);
+        if (!region) continue;
+        if (clue.type === 'miss') {
+            const result = turf.difference(zone, region);
+            if (!result) return null;
+            zone = result;
+        } else {
+            const result = turf.intersect(zone, region);
+            if (!result) return null;
+            zone = result;
+        }
+    }
     return zone;
 }
 
@@ -723,6 +758,257 @@ function distanceClueRegion(clue) {
         console.warn('distanceClueRegion error:', e);
         return null;
     }
+}
+
+// Returns the region for a tentacle clue.
+// miss → full circle (zone.difference excludes it entirely)
+// hit  → Voronoi cell of the selected feature clipped to the circle
+function tentacleClueRegion(clue) {
+    if (clue._region) return clue._region;
+    const circle = turf.circle(clue.center, clue.radiusMiles, { units: 'miles', steps: 48 });
+
+    if (clue.type === 'miss') {
+        clue._region = circle;
+        return circle;
+    }
+
+    const data = distanceFeatureCache[clue.featureType];
+    if (!data) return null;
+
+    const pointFeatures = data.features.filter(f => f.geometry.type === 'Point');
+    const within = pointFeatures
+        .map((f, i) => ({ f, i }))
+        .filter(({ f }) => turf.booleanPointInPolygon(f, circle));
+
+    if (within.length === 0) return null;
+    const targetPos = within.findIndex(({ i }) => i === clue.featureIndex);
+    if (targetPos < 0) return null;
+
+    if (within.length === 1) {
+        clue._region = circle;
+        return circle;
+    }
+
+    const bbox = turf.bbox(circle);
+    const bboxPadded = [bbox[0] - 0.05, bbox[1] - 0.05, bbox[2] + 0.05, bbox[3] + 0.05];
+    try {
+        const voronoi = turf.voronoi(
+            { type: 'FeatureCollection', features: within.map(({ f }) => f) },
+            { bbox: bboxPadded }
+        );
+        const cell = voronoi.features[targetPos];
+        if (!cell) return null;
+        const clipped = turf.intersect(cell, circle);
+        if (!clipped) return null;
+        clue._region = clipped;
+        return clipped;
+    } catch (e) {
+        console.warn('tentacleClueRegion error:', e);
+        return null;
+    }
+}
+
+async function loadTentacleFeature(featureType) {
+    if (distanceFeatureCache[featureType]) return distanceFeatureCache[featureType];
+    const info = TENTACLE_FEATURES[featureType];
+    if (!info) return null;
+    try {
+        const r = await fetch(info.file);
+        if (!r.ok) return null;
+        const data = await r.json();
+        distanceFeatureCache[featureType] = data;
+        return data;
+    } catch { return null; }
+}
+
+function onTentacleCluesChanged() {
+    const activeZone = computeActiveZone();
+    const maskSrc = map.getSource('game-region-outside');
+    if (maskSrc) maskSrc.setData(buildOutsideMask(activeZone));
+    updateStats();
+    renderTentacleCluesList();
+    renderStationList();
+    saveToActiveProfile();
+}
+
+function deleteTentacleClue(id) {
+    state.tentacleClues = state.tentacleClues.filter(c => c.id !== id);
+    onTentacleCluesChanged();
+}
+
+function updateTentacleClue(id, changes) {
+    const clue = state.tentacleClues.find(c => c.id === id);
+    if (!clue) return;
+    if (changes.type !== undefined) clue.type = changes.type;
+    if (changes.radiusMiles !== undefined) {
+        clue.radiusMiles = changes.radiusMiles;
+        delete clue._region;
+    }
+    onTentacleCluesChanged();
+}
+
+function renderTentacleCluesList() {
+    const container = document.getElementById('tentacle-clues-list-container');
+    if (!container) return;
+    if (state.tentacleClues.length === 0) {
+        container.innerHTML = '<div style="padding:6px 0;font-size:11px;color:var(--text-muted)">No clues yet. Select type, click + Add, then click the map.</div>';
+        return;
+    }
+    container.innerHTML = '';
+    state.tentacleClues.forEach((clue, idx) => {
+        const info = TENTACLE_FEATURES[clue.featureType] || {};
+        const isMiss = clue.type === 'miss';
+        const item = document.createElement('div');
+        item.className = 'circle-item';
+        item.innerHTML = `
+            <div class="circle-item-header">
+                <span class="circle-index" style="font-size:9px;white-space:nowrap">${idx + 1}</span>
+                <span style="flex:1;font-size:11px;padding:0 5px;min-width:0">
+                    <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${isMiss ? 'color:var(--text-muted);font-style:italic' : ''}">
+                        ${isMiss ? '✗ Not in circle' : clue.featureName}
+                    </span>
+                    <span style="font-size:10px;color:var(--text-muted)">${info.label || clue.featureType} &middot;
+                        <input type="number" class="tentacle-radius-input" value="${clue.radiusMiles.toFixed(1)}" min="0.1" step="0.1"
+                            style="width:40px;font-size:10px;border:1px solid var(--border-color);border-radius:3px;padding:0 3px;background:var(--bg-secondary);color:var(--text-primary)"> mi radius
+                    </span>
+                </span>
+                <button class="circle-delete-btn" title="Delete">×</button>
+            </div>`;
+        item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteTentacleClue(clue.id));
+        item.querySelector('.tentacle-radius-input').addEventListener('change', e => {
+            const val = parseFloat(e.target.value);
+            if (!isNaN(val) && val > 0) updateTentacleClue(clue.id, { radiusMiles: val });
+        });
+        container.appendChild(item);
+    });
+}
+
+
+async function showTentacleGlobalPreview(featureType) {
+    if (!map.getSource('tentacle-preview')) return;
+    const data = await loadTentacleFeature(featureType);
+    if (!data) return;
+    const points = data.features.filter(f => f.geometry.type === 'Point');
+    if (points.length < 2) return;
+    let voronoiFC = { type: 'FeatureCollection', features: [] };
+    try {
+        const voronoi = turf.voronoi(
+            { type: 'FeatureCollection', features: points },
+            { bbox: VORONOI_BBOX }
+        );
+        voronoiFC = {
+            type: 'FeatureCollection',
+            features: voronoi.features.map((cell, idx) => {
+                if (!cell) return null;
+                const name = points[idx].properties?.name || points[idx].properties?.Name || '';
+                return { ...cell, properties: { name } };
+            }).filter(Boolean)
+        };
+    } catch (e) { console.warn('tentacle global preview error:', e); }
+    map.getSource('tentacle-preview').setData(voronoiFC);
+    map.getSource('tentacle-circle-src').setData({ type: 'FeatureCollection', features: [] });
+    ['tentacle-preview-fill', 'tentacle-preview-stroke', 'tentacle-preview-labels', 'tentacle-circle-stroke'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+}
+
+function showTentaclePreview(within, circle) {
+    if (!map.getSource('tentacle-preview')) return;
+
+    const bbox = turf.bbox(circle);
+    const bboxPadded = [bbox[0] - 0.05, bbox[1] - 0.05, bbox[2] + 0.05, bbox[3] + 0.05];
+    let voronoiFC = { type: 'FeatureCollection', features: [] };
+
+    if (within.length >= 2) {
+        try {
+            const voronoi = turf.voronoi(
+                { type: 'FeatureCollection', features: within.map(({ f }) => f) },
+                { bbox: bboxPadded }
+            );
+            voronoiFC = {
+                type: 'FeatureCollection',
+                features: voronoi.features.map((cell, idx) => {
+                    if (!cell) return null;
+                    try {
+                        const clipped = turf.intersect(cell, circle);
+                        if (!clipped) return null;
+                        return { ...clipped, properties: { name: within[idx].name } };
+                    } catch { return null; }
+                }).filter(Boolean)
+            };
+        } catch (e) { console.warn('tentacle preview voronoi error:', e); }
+    } else if (within.length === 1) {
+        voronoiFC = { type: 'FeatureCollection', features: [{ ...circle, properties: { name: within[0].name } }] };
+    }
+
+    map.getSource('tentacle-preview').setData(voronoiFC);
+    map.getSource('tentacle-circle-src').setData(circle);
+    ['tentacle-preview-fill', 'tentacle-preview-stroke', 'tentacle-preview-labels', 'tentacle-circle-stroke'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+    });
+}
+
+function clearTentaclePreview() {
+    if (!map.getSource('tentacle-preview')) return;
+    ['tentacle-preview-fill', 'tentacle-preview-stroke', 'tentacle-preview-labels', 'tentacle-circle-stroke'].forEach(id => {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    });
+    map.getSource('tentacle-preview').setData({ type: 'FeatureCollection', features: [] });
+    map.getSource('tentacle-circle-src').setData({ type: 'FeatureCollection', features: [] });
+}
+
+async function showTentacleFeaturePicker(featureType, radiusMiles, center) {
+    const picker = document.getElementById('tentacle-feature-picker');
+    if (!picker) return;
+
+    picker.innerHTML = '<div style="padding:6px 8px;font-size:11px;color:var(--text-muted)">Loading…</div>';
+    picker.style.display = 'block';
+
+    const data = await loadTentacleFeature(featureType);
+    if (!data) { picker.innerHTML = '<div style="padding:6px 8px;font-size:11px;color:var(--text-muted)">Failed to load.</div>'; return; }
+
+    const circle = turf.circle(center, radiusMiles, { units: 'miles', steps: 48 });
+    const pt = turf.point(center);
+    const within = data.features
+        .filter(f => f.geometry.type === 'Point')
+        .map((f, i) => ({
+            f,
+            i,
+            name: f.properties?.name || f.properties?.Name || `Feature ${i + 1}`,
+            dist: turf.distance(pt, f, { units: 'miles' }),
+        }))
+        .filter(({ dist }) => dist <= radiusMiles)
+        .sort((a, b) => a.dist - b.dist);
+
+    if (within.length === 0) {
+        picker.innerHTML = '<div style="padding:6px 8px;font-size:11px;color:var(--text-muted)">No features within radius.</div>';
+        showTentaclePreview([], circle);
+        return;
+    }
+
+    showTentaclePreview(within, circle);
+
+    const addRow = (label, dist, onclick, isMiss) => {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:4px 8px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;gap:6px;align-items:center';
+        row.innerHTML = isMiss
+            ? `<span style="color:var(--text-muted);font-style:italic">✗ Not in this circle</span>`
+            : `<span>${label}</span><span style="color:var(--text-muted);font-size:10px;white-space:nowrap">${dist.toFixed(2)}mi</span>`;
+        row.addEventListener('mouseenter', () => { row.style.background = 'var(--bg-secondary)'; });
+        row.addEventListener('mouseleave', () => { row.style.background = ''; });
+        row.addEventListener('click', () => { picker.style.display = 'none'; clearTentaclePreview(); onclick(); onTentacleCluesChanged(); });
+        picker.appendChild(row);
+    };
+
+    picker.innerHTML = `<div style="padding:4px 8px;font-size:10px;color:var(--text-muted);border-bottom:1px solid var(--border-color)">${within.length} within ${radiusMiles}mi — pick the nearest:</div>`;
+    within.forEach(({ i, name, dist }) => {
+        addRow(name, dist, () => {
+            state.tentacleClues.push({ id: `tc${nextTentacleClueId++}`, featureType, featureIndex: i, featureName: name, center, radiusMiles, label: TENTACLE_FEATURES[featureType].label, type: 'hit' });
+        }, false);
+    });
+    addRow(null, null, () => {
+        state.tentacleClues.push({ id: `tc${nextTentacleClueId++}`, featureType, center, radiusMiles, label: TENTACLE_FEATURES[featureType].label, type: 'miss' });
+    }, true);
 }
 
 // Sample a LineString feature into evenly-spaced points.
@@ -1952,9 +2238,61 @@ function setupMapLayers() {
         });
     }
 
+    // Tentacle preview layers (hidden until user clicks map in add mode)
+    if (!map.getSource('tentacle-preview')) {
+        map.addSource('tentacle-preview', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getSource('tentacle-circle-src')) {
+        map.addSource('tentacle-circle-src', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    }
+    if (!map.getLayer('tentacle-circle-stroke')) {
+        map.addLayer({
+            id: 'tentacle-circle-stroke',
+            type: 'line',
+            source: 'tentacle-circle-src',
+            layout: { visibility: 'none' },
+            paint: { 'line-color': '#d97706', 'line-width': 2.5, 'line-opacity': 1 }
+        });
+    }
+    if (!map.getLayer('tentacle-preview-fill')) {
+        map.addLayer({
+            id: 'tentacle-preview-fill',
+            type: 'fill',
+            source: 'tentacle-preview',
+            layout: { visibility: 'none' },
+            paint: { 'fill-color': '#f59e0b', 'fill-opacity': 0.25 }
+        });
+    }
+    if (!map.getLayer('tentacle-preview-stroke')) {
+        map.addLayer({
+            id: 'tentacle-preview-stroke',
+            type: 'line',
+            source: 'tentacle-preview',
+            layout: { visibility: 'none' },
+            paint: { 'line-color': '#92400e', 'line-width': 2, 'line-opacity': 1 }
+        });
+    }
+    if (!map.getLayer('tentacle-preview-labels')) {
+        map.addLayer({
+            id: 'tentacle-preview-labels',
+            type: 'symbol',
+            source: 'tentacle-preview',
+            layout: {
+                visibility: 'none',
+                'text-field': ['get', 'name'],
+                'text-font': ['Open Sans Bold', 'Noto Sans Regular'],
+                'text-size': 12,
+                'text-max-width': 8,
+                'text-allow-overlap': true,
+            },
+            paint: { 'text-color': '#78350f', 'text-halo-color': '#fef3c7', 'text-halo-width': 2 }
+        });
+    }
+
     renderAdminCluesList();
     renderDistanceCluesList();
     renderMatchingCluesList();
+    renderTentacleCluesList();
 
     // Apply filters based on initial state
     applyFiltersToMap();
@@ -2215,7 +2553,7 @@ function updateStats() {
     statTotalStations.textContent = activeStations.length;
 
     let activeHidingCount;
-    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0 || state.distanceClues.length > 0 || state.matchingClues.length > 0) {
+    if (state.circles.length > 0 || state.thermometers.length > 0 || state.adminClues.length > 0 || state.distanceClues.length > 0 || state.matchingClues.length > 0 || state.tentacleClues.length > 0) {
         const activeZone = computeActiveZone();
         activeHidingCount = activeZone
             ? activeStations.filter(s => turf.booleanPointInPolygon(
@@ -2326,7 +2664,7 @@ function renderStationList() {
 
         const datasetTag = `<span class="dataset-badge ${dataset}" style="margin-right: 6px;">${dataset}</span>`;
 
-        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0 && state.distanceClues.length === 0 && state.matchingClues.length === 0) ? `
+        const toggleHtml = (state.circles.length === 0 && state.thermometers.length === 0 && state.adminClues.length === 0 && state.distanceClues.length === 0 && state.matchingClues.length === 0 && state.tentacleClues.length === 0) ? `
                 <label class="switch">
                     <input type="checkbox" class="list-toggle" data-id="${id}" ${isHidingActive ? 'checked' : ''}>
                     <span class="slider round"></span>
@@ -2619,6 +2957,26 @@ function setupEventListeners() {
     });
     populateMatchingFeatures(matchingTypeSel.value); // load initial type on startup
 
+    // Tentacle add button
+    document.getElementById('btn-add-tentacle').addEventListener('click', () => {
+        const featureType = document.getElementById('tentacle-type-select').value;
+        if (addingTentacleMode) {
+            addingTentacleMode = false;
+            map.getCanvas().style.cursor = '';
+            document.getElementById('btn-add-tentacle').classList.remove('active');
+            document.getElementById('btn-add-tentacle').textContent = '+ Add';
+            document.getElementById('tentacle-feature-picker').style.display = 'none';
+            clearTentaclePreview();
+        } else {
+            addingTentacleMode = featureType;
+            map.getCanvas().style.cursor = 'crosshair';
+            document.getElementById('btn-add-tentacle').classList.add('active');
+            document.getElementById('btn-add-tentacle').textContent = 'Click map…';
+            document.getElementById('tentacle-feature-picker').style.display = 'none';
+            showTentacleGlobalPreview(featureType);
+        }
+    });
+
     document.getElementById('btn-matching-view').addEventListener('click', () => {
         if (matchingViewMode) {
             exitMatchingViewMode();
@@ -2639,7 +2997,7 @@ function setupEventListeners() {
 
     // Close mobile sidebar when clicking on map
     map.on('click', (e) => {
-        if (state.editMode && addingAdminClueLevel === 0 && !addingDistanceClueMode) return;
+        if (state.editMode && addingAdminClueLevel === 0 && !addingDistanceClueMode && !addingTentacleMode) return;
 
         if (addingThermometerMode) {
             const pt = [e.lngLat.lng, e.lngLat.lat];
@@ -2685,6 +3043,17 @@ function setupEventListeners() {
             const btn = document.getElementById('btn-add-distance-clue');
             if (btn) { btn.classList.remove('active'); btn.textContent = '+ Add'; }
             addDistanceClue(key, e.lngLat);
+            return;
+        }
+
+        if (addingTentacleMode) {
+            const featureType = addingTentacleMode;
+            const radiusMiles = parseFloat(document.getElementById('tentacle-radius')?.value) || 1;
+            addingTentacleMode = false;
+            map.getCanvas().style.cursor = '';
+            const btn = document.getElementById('btn-add-tentacle');
+            if (btn) { btn.classList.remove('active'); btn.textContent = '+ Add'; }
+            showTentacleFeaturePicker(featureType, radiusMiles, [e.lngLat.lng, e.lngLat.lat]);
             return;
         }
 
