@@ -88,6 +88,7 @@ let addingDistanceClueMode = false; // false | feature-key string (waiting for r
 
 // ── Matching clue config ──────────────────────────────────────────────────────
 const MATCHING_FEATURES = {
+    'rail-lines':     { label: 'Train Line',         icon: 'fa-train',             file: 'features/rail-lines.geojson' },
     'airports':       { label: 'Commercial Airport', icon: 'fa-plane',             file: 'features/airports.geojson' },
     'mountains':      { label: 'Mountain',           icon: 'fa-mountain',          file: 'features/mountains.geojson' },
     'amusement-parks':{ label: 'Amusement Park',    icon: 'fa-star',              file: 'features/amusement-parks.geojson' },
@@ -100,9 +101,18 @@ const MATCHING_FEATURES = {
     'libraries':      { label: 'Library',            icon: 'fa-book',              file: 'features/libraries.geojson' },
     'consulates':     { label: 'Consulate',          icon: 'fa-flag',              file: 'features/consulates.geojson' },
 };
-const matchingVoronoiCache = {}; // featureType → turf.voronoi FeatureCollection
+const matchingVoronoiCache = {}; // featureType → turf.voronoi FeatureCollection (or regionByLine map for rail-lines)
 const VORONOI_BBOX = [-119.5, 33.0, -116.5, 35.5];
 let nextMatchingClueId = 1;
+
+const RAIL_INTERLINE_GROUPS = {
+    'A': ['A', 'E'],
+    'E': ['A', 'E'],
+    'B': ['B', 'D'],
+    'D': ['B', 'D'],
+    'C': ['C', 'K'],
+    'K': ['C', 'K'],
+};
 
 // DOM Elements
 const stationSearch = document.getElementById('station-search');
@@ -714,16 +724,78 @@ function distanceClueRegion(clue) {
     }
 }
 
+// Sample a LineString feature into evenly-spaced points.
+function sampleLine(lineFeature, spacingKm = 0.3) {
+    const len = turf.length(lineFeature, { units: 'kilometers' });
+    const n = Math.max(2, Math.ceil(len / spacingKm));
+    const pts = [];
+    for (let i = 0; i <= n; i++) {
+        try { pts.push(turf.along(lineFeature, (i / n) * len, { units: 'kilometers' })); } catch {}
+    }
+    return pts;
+}
+
+// Build per-line Voronoi regions from rail-lines.geojson.
+// Sample points on shared track (within SHARED_THRESHOLD_KM of an interlined line)
+// are tagged with both line IDs, so each line's region includes shared-track cells.
+function buildRailLineVoronoi(data) {
+    const SHARED_THRESHOLD_KM = 0.08;
+    const lineFeatures = {};
+    for (const feat of data.features) lineFeatures[feat.properties.line] = feat;
+
+    const allSamples = []; // { point, lineIds: Set<string> }
+    for (const [lineId, feat] of Object.entries(lineFeatures)) {
+        for (const pt of sampleLine(feat)) {
+            const lineIds = new Set([lineId]);
+            for (const partnerId of (RAIL_INTERLINE_GROUPS[lineId] || [])) {
+                if (partnerId === lineId || !lineFeatures[partnerId]) continue;
+                try {
+                    if (turf.pointToLineDistance(pt, lineFeatures[partnerId], { units: 'kilometers' }) <= SHARED_THRESHOLD_KM)
+                        lineIds.add(partnerId);
+                } catch {}
+            }
+            allSamples.push({ point: pt, lineIds });
+        }
+    }
+
+    const voronoi = turf.voronoi(
+        { type: 'FeatureCollection', features: allSamples.map(s => s.point) },
+        { bbox: VORONOI_BBOX }
+    );
+
+    const cellsByLine = {};
+    voronoi.features.forEach((cell, i) => {
+        if (!cell) return;
+        for (const lineId of allSamples[i].lineIds) {
+            (cellsByLine[lineId] = cellsByLine[lineId] || []).push(cell);
+        }
+    });
+
+    const regionByLine = {};
+    for (const [lineId, cells] of Object.entries(cellsByLine))
+        regionByLine[lineId] = cascadeUnion(cells);
+    return regionByLine;
+}
+
 // Returns the Voronoi cell (polygon) for a matching clue's named feature.
 function matchingClueRegion(clue) {
     if (clue._voronoiCell) return clue._voronoiCell;
     const data = distanceFeatureCache[clue.featureType];
     if (!data || !data.features.length) return null;
+
+    if (clue.featureType === 'rail-lines') {
+        if (!matchingVoronoiCache['rail-lines'])
+            matchingVoronoiCache['rail-lines'] = buildRailLineVoronoi(data);
+        const lineId = data.features[clue.featureIndex]?.properties?.line;
+        const region = lineId && matchingVoronoiCache['rail-lines'][lineId];
+        if (!region) return null;
+        clue._voronoiCell = region;
+        return region;
+    }
+
+    // Point Voronoi for all other feature types
     if (!matchingVoronoiCache[clue.featureType]) {
-        const points = {
-            type: 'FeatureCollection',
-            features: data.features.filter(f => f.geometry.type === 'Point')
-        };
+        const points = { type: 'FeatureCollection', features: data.features.filter(f => f.geometry.type === 'Point') };
         if (points.features.length < 2) return null;
         try {
             matchingVoronoiCache[clue.featureType] = turf.voronoi(points, { bbox: VORONOI_BBOX });
@@ -732,8 +804,7 @@ function matchingClueRegion(clue) {
             return null;
         }
     }
-    const voronoi = matchingVoronoiCache[clue.featureType];
-    const cell = voronoi?.features?.[clue.featureIndex];
+    const cell = matchingVoronoiCache[clue.featureType]?.features?.[clue.featureIndex];
     if (!cell) return null;
     clue._voronoiCell = cell;
     return cell;
