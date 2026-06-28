@@ -46,6 +46,7 @@ map.addControl(new maplibregl.NavigationControl({
 // Synchronization Flags
 let isMapReady = false;
 let dataLoaded = false;
+let mapEventsRegistered = false;
 
 // Circle editing state
 let circleMarkers = new Map();
@@ -286,7 +287,7 @@ function restoreLastSessionState() {
                 } else {
                     document.body.classList.remove('dark-theme');
                 }
-                map.setStyle(MAP_STYLES[state.currentTheme]);
+                map.setStyle(MAP_STYLES[state.currentTheme], { diff: false });
             }
             
             // Set UI inputs checkboxes values
@@ -2317,8 +2318,11 @@ function setupMapLayers() {
         }
     }
 
-    // Map Event Listeners
-    setupMapEvents();
+    // Map Event Listeners — only wire up once; style changes re-run this function
+    if (!mapEventsRegistered) {
+        setupMapEvents();
+        mapEventsRegistered = true;
+    }
 }
 
 // Fit map to boundary coordinates
@@ -2841,8 +2845,10 @@ function setupEventListeners() {
             document.body.classList.remove('dark-theme');
         }
         
-        // Reinitialize map style
-        map.setStyle(MAP_STYLES[state.currentTheme]);
+        // Reinitialize map style — diff:false ensures MapLibre fully clears all
+        // custom sources/layers before firing style.load, so setupMapLayers can re-add them.
+        isMapReady = false;
+        map.setStyle(MAP_STYLES[state.currentTheme], { diff: false });
         saveCurrentViewState(); // Save theme toggle in state
     });
 
@@ -3125,7 +3131,11 @@ function trySetupMap() {
 
 // Global listener on map style loads (fires on initial load and theme switches)
 map.on('style.load', () => {
-    trySetupMap();
+    // When style.load fires we know the style is ready, so call setupMapLayers directly
+    // if data is already available. trySetupMap() handles the reverse race (data loads first).
+    if (dataLoaded) {
+        setupMapLayers();
+    }
 });
 
 // Start execution
