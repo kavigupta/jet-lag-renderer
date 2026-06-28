@@ -312,6 +312,18 @@ function restoreLastSessionState() {
 }
 
 // Profile Storage & Management
+function makeBlankProfile(id, name) {
+    return {
+        id, name,
+        center: [-118.287, 34.05], zoom: 10.2,
+        globalRegionsVisible: true,
+        activeDatasets: ['bus', 'metro'],
+        circles: [], thermometers: [], adminClues: [],
+        distanceClues: [], matchingClues: [], tentacleClues: [],
+        foundStations: [],
+    };
+}
+
 function loadProfiles() {
     try {
         const stored = localStorage.getItem('jet-lag-profiles');
@@ -320,22 +332,14 @@ function loadProfiles() {
         console.error('Error loading profiles:', err);
     }
     if (state.profiles.length === 0) {
-        state.profiles = [{
-            id: 'default',
-            name: 'Default',
-            center: [-118.287, 34.05],
-            zoom: 10.2,
-            globalRegionsVisible: true,
-            activeDatasets: ['bus', 'metro'],
-            circles: []
-        }];
+        state.profiles = [makeBlankProfile('default', 'Default')];
         saveProfiles();
     }
-    // Always be in a profile — activate the first one on load
-    state.activeProfileId = state.profiles[0].id;
 
-    // Restore state from the active profile
-    const active = state.profiles[0];
+    // Restore last active profile, falling back to the first
+    const savedActiveId = localStorage.getItem('jet-lag-active-profile');
+    const active = state.profiles.find(p => p.id === savedActiveId) || state.profiles[0];
+    state.activeProfileId = active.id;
     state.circles = (active.circles || []).map(c => ({ ...c }));
     if (active.circles?.length > 0) {
         nextCircleId = Math.max(...active.circles.map(c => parseInt(c.id.replace('c', '')) || 0)) + 1;
@@ -369,6 +373,7 @@ function loadProfiles() {
 function saveProfiles() {
     try {
         localStorage.setItem('jet-lag-profiles', JSON.stringify(state.profiles));
+        localStorage.setItem('jet-lag-active-profile', state.activeProfileId);
     } catch (err) {
         console.error('Error saving profiles:', err);
     }
@@ -533,46 +538,24 @@ function applyProfile(profileId) {
 }
 
 function createProfile() {
-    const centerObj = map.getCenter();
-    const center = [centerObj.lng, centerObj.lat];
-    const zoom = map.getZoom();
     const id = Date.now().toString();
-    
-    const newProfile = {
-        id: id,
-        name: `Profile ${state.profiles.length + 1}`,
-        center: center,
-        zoom: zoom,
-        globalRegionsVisible: state.globalRegionsVisible,
-        activeDatasets: Array.from(state.activeDatasets),
-        circles: state.circles.map(c => ({ ...c })),
-        thermometers: state.thermometers.map(t => ({ ...t })),
-        adminClues: state.adminClues.map(c => ({ ...c })),
-        distanceClues: state.distanceClues.map(c => ({ ...c })),
-        matchingClues: state.matchingClues.map(c => ({ ...c })),
-        tentacleClues: state.tentacleClues.map(c => ({ ...c })),
-        foundStations: state.foundStations.map(s => ({ ...s })),
-    };
+    const newProfile = makeBlankProfile(id, `Profile ${state.profiles.length + 1}`);
 
     state.profiles.push(newProfile);
     state.activeProfileId = id;
-    
+
     saveProfiles();
-    renderProfilesList();
+    applyProfile(id); // clears the map to a blank slate
+
+    // Immediately enter rename mode so the user can name the new profile
+    const newItem = profilesListContainer.querySelector(`[data-id="${id}"]`);
+    if (newItem) startProfileRename(id, newItem);
 }
 
 function deleteProfile(profileId) {
     state.profiles = state.profiles.filter(p => p.id !== profileId);
     if (state.profiles.length === 0) {
-        state.profiles = [{
-            id: 'default',
-            name: 'Default',
-            center: [-118.287, 34.05],
-            zoom: 10.2,
-            globalRegionsVisible: true,
-            activeDatasets: ['bus', 'metro'],
-            circles: []
-        }];
+        state.profiles = [makeBlankProfile('default', 'Default')];
     }
     if (state.activeProfileId === profileId) {
         state.activeProfileId = state.profiles[0].id;
