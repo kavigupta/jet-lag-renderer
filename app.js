@@ -219,6 +219,9 @@ async function init() {
         // All hiding zones on by default
         state.stations.forEach(s => state.enabledHidingRegions.add(s.id));
 
+        // Ensure the game region fully covers every hiding zone
+        expandGameRegionWithHidingZones();
+
         // Build Combined GeoJSON for MapLibre
         state.stationsGeoJson = {
             type: 'FeatureCollection',
@@ -618,6 +621,26 @@ function generateHidingRegionsGeoJson() {
         type: 'FeatureCollection',
         features: features
     };
+}
+
+// Grow state.gameRegion so its polygon fully contains every hiding zone circle,
+// preserving the sidecar config keys stored alongside the FeatureCollection.
+function expandGameRegionWithHidingZones() {
+    if (!state.gameRegion) return;
+    const hidingZones = generateHidingRegionsGeoJson();
+    if (!hidingZones.features.length) return;
+
+    let regionFeature = normalizeToFeature(state.gameRegion);
+    hidingZones.features.forEach(circle => {
+        try {
+            regionFeature = turf.union(regionFeature, circle) || regionFeature;
+        } catch (err) {
+            console.error('Error expanding game region with hiding zone:', err);
+        }
+    });
+
+    state.gameRegion.type = 'FeatureCollection';
+    state.gameRegion.features = [regionFeature];
 }
 
 // Build a world polygon with the active zone cut out.
