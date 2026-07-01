@@ -717,9 +717,15 @@ function computeActiveZone() {
     for (const clue of state.matchingClues) {
         const region = matchingClueRegion(clue);
         if (!region) continue;
-        const result = turf.intersect(zone, region);
-        if (!result) return null;
-        zone = result;
+        if (clue.type === 'miss') {
+            const result = turf.difference(zone, region);
+            if (!result) return null;
+            zone = result;
+        } else {
+            const result = turf.intersect(zone, region);
+            if (!result) return null;
+            zone = result;
+        }
     }
     for (const clue of state.tentacleClues) {
         const region = tentacleClueRegion(clue);
@@ -1721,12 +1727,19 @@ function onMatchingCluesChanged() {
 function addMatchingClue(featureType, featureIndex, featureName) {
     const id = `mc${nextMatchingClueId++}`;
     const info = MATCHING_FEATURES[featureType];
-    state.matchingClues.push({ id, featureType, featureIndex, featureName, label: info.label });
+    state.matchingClues.push({ id, featureType, featureIndex, featureName, label: info.label, type: 'hit' });
     onMatchingCluesChanged();
 }
 
 function deleteMatchingClue(id) {
     state.matchingClues = state.matchingClues.filter(c => c.id !== id);
+    onMatchingCluesChanged();
+}
+
+function updateMatchingClue(id, changes) {
+    const clue = state.matchingClues.find(c => c.id === id);
+    if (!clue) return;
+    if (changes.type !== undefined) clue.type = changes.type;
     onMatchingCluesChanged();
 }
 
@@ -1740,17 +1753,25 @@ function renderMatchingCluesList() {
     container.innerHTML = '';
     state.matchingClues.forEach((clue, idx) => {
         const info = MATCHING_FEATURES[clue.featureType] || {};
+        const isMiss = clue.type === 'miss';
         const item = document.createElement('div');
         item.className = 'circle-item';
         item.innerHTML = `
             <div class="circle-item-header">
                 <span class="circle-index" style="font-size:9px;white-space:nowrap">${idx + 1}</span>
                 <span style="flex:1;font-size:11px;padding:0 5px;min-width:0">
-                    <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${clue.featureName}</span>
+                    <span style="display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${isMiss ? 'color:var(--text-muted);font-style:italic' : ''}">${clue.featureName}</span>
                     <span style="font-size:10px;color:var(--text-muted)">${info.label || clue.featureType}</span>
                 </span>
+                <div class="circle-type-btns">
+                    <button class="circle-type-btn hit ${clue.type !== 'miss' ? 'active' : ''}" data-type="hit">Hit</button>
+                    <button class="circle-type-btn miss ${clue.type === 'miss' ? 'active' : ''}" data-type="miss">Miss</button>
+                </div>
                 <button class="circle-delete-btn" title="Delete">×</button>
             </div>`;
+        item.querySelectorAll('.circle-type-btn').forEach(btn =>
+            btn.addEventListener('click', () => updateMatchingClue(clue.id, { type: btn.dataset.type }))
+        );
         item.querySelector('.circle-delete-btn').addEventListener('click', () => deleteMatchingClue(clue.id));
         container.appendChild(item);
     });
